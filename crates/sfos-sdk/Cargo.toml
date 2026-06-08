@@ -1,0 +1,14 @@
+[package]
+name = "sfos-sdk"
+version = "0.1.0"
+edition = "2021"
+description = "Sophos SFOS SDK — config model, parser, analysis, and XML API client (Rust port of sophos-firewall-sdk)"
+license = "MIT"
+authors = ["TWN Systems"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+quick-xml = { version = "0.36", features = ["serialize"] }
+ipnetwork = { version = "0.21", features = ["serde"] }
+thiserror = "2"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }

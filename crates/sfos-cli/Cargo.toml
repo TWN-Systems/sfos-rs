@@ -1,0 +1,16 @@
+[package]
+name = "sfos-cli"
+version = "0.1.0"
+edition = "2021"
+description = "sfos-rs — Sophos SFOS firewall configuration analysis, search, and live XML API CLI"
+license = "MIT"
+authors = ["TWN Systems"]
+
+[[bin]]
+name = "sfos-rs"
+path = "src/main.rs"
+
+[dependencies]
+sfos-sdk = { path = "../sfos-sdk" }
+clap = { version = "4", features = ["derive", "color"] }
+serde_json = "1"
