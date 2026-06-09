@@ -15,7 +15,7 @@
   <!-- Public address 203.0.113.10 is DNAT'd to the internal web server. -->
   <NATRule>
     <Name>web-dnat</Name><Status>Enable</Status>
-    <OriginalDestination>PublicWeb</OriginalDestination>
+    <OriginalDestinationNetworks><Network>PublicWeb</Network></OriginalDestinationNetworks>
     <TranslatedDestination>WebServer</TranslatedDestination>
   </NATRule>
   <FirewallRule>

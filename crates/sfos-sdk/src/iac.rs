@@ -35,7 +35,9 @@ pub struct NormInterface {
 #[derive(Serialize)]
 pub struct NormNat {
     pub name: String,
-    pub original_destination: Option<String>,
+    pub original_sources: Vec<String>,
+    pub original_destinations: Vec<String>,
+    pub translated_source: Option<String>,
     pub translated_destination: Option<String>,
 }
 
@@ -104,7 +106,9 @@ pub fn normalize(cfg: &SophosConfig) -> NormalizedConfig {
             .iter()
             .map(|n| NormNat {
                 name: n.name.clone(),
-                original_destination: n.original_destination.clone(),
+                original_sources: n.original_sources().to_vec(),
+                original_destinations: n.original_destinations().to_vec(),
+                translated_source: n.translated_source.clone(),
                 translated_destination: n.translated_destination.clone(),
             })
             .collect(),
@@ -169,8 +173,7 @@ pub fn normalize(cfg: &SophosConfig) -> NormalizedConfig {
             })
             .collect(),
         ipsec: cfg
-            .ipsec_connections
-            .iter()
+            .ipsec_connections()
             .map(|c| NormIpsec {
                 name: c.name.clone(),
                 connection_type: c.connection_type.clone(),
@@ -179,7 +182,7 @@ pub fn normalize(cfg: &SophosConfig) -> NormalizedConfig {
                 ike_version: c.ike_version.clone(),
                 remote_gateway: c.remote_gateway.clone(),
                 local_subnets: c.local_subnets.clone(),
-                remote_subnets: c.remote_subnets.clone(),
+                remote_subnets: c.remote_subnets().to_vec(),
             })
             .collect(),
     }

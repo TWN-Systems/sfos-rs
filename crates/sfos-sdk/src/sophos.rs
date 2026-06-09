@@ -44,7 +44,7 @@ pub struct SophosConfig {
     #[serde(rename = "Services", default)]
     pub services: Vec<ServiceObj>,
     #[serde(rename = "VPNIPSecConnection", default)]
-    pub ipsec_connections: Vec<IpsecConnection>,
+    pub ipsec: Vec<IpsecConnection>,
     #[serde(rename = "Interface", default)]
     pub interfaces: Vec<Interface>,
     #[serde(rename = "NATRule", default)]
@@ -57,53 +57,66 @@ pub struct SophosConfig {
     pub hotfix: Option<Hotfix>,
 }
 
-/// IPsec VPN connection. Field tags are best-effort against the SFOS 21.5 schema
-/// (the `VPNIPSecConnection` entity) and self-validate against a live export —
-/// the analysis logic operates on these fields regardless of exact tag spelling.
+/// `<VPNIPSecConnection>` — confirmed to wrap its body in `<Configuration>`
+/// (migration-utility template). Use [`SophosConfig::ipsec_connections`] to
+/// iterate the inner [`IpsecConfig`] bodies.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct IpsecConnection {
-    #[serde(rename = "Name")]
+    #[serde(rename = "Configuration", default)]
+    pub configuration: IpsecConfig,
+}
+
+/// The IPsec connection body (the children of `<Configuration>`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct IpsecConfig {
+    #[serde(rename = "Name", default)]
     pub name: String,
     /// SiteToSite | RemoteAccess | HostToHost
     #[serde(rename = "ConnectionType", default)]
     pub connection_type: Option<String>,
-    /// IPsec profile name (proposals/PFS/lifetimes live in the profile).
+    /// IPsec profile name (proposals/PFS/lifetimes/IKE version live in the profile).
     #[serde(rename = "Policy", default)]
     pub policy: Option<String>,
     /// PresharedKey | RSAKey | DigitalCertificate
     #[serde(rename = "AuthenticationType", default)]
     pub authentication_type: Option<String>,
-    #[serde(rename = "IKEVersion", default)]
-    pub ike_version: Option<String>,
     #[serde(rename = "Status", default)]
     pub status: Option<String>,
-    #[serde(rename = "LocalGateway", default)]
+    /// Local WAN port/interface bound to the tunnel.
+    #[serde(rename = "LocalWANPort", alias = "LocalGateway", default)]
     pub local_gateway: Option<String>,
     #[serde(rename = "RemoteHost", default)]
     pub remote_gateway: Option<String>,
-    /// Local subnet host-object name(s).
+    /// Local subnet host-object name(s) — `<LocalSubnet>` repeated.
     #[serde(rename = "LocalSubnet", default)]
     pub local_subnets: Vec<String>,
-    /// Remote subnet host-object name(s).
-    #[serde(rename = "RemoteSubnet", default)]
-    pub remote_subnets: Vec<String>,
+    /// Remote networks — `<RemoteNetwork><Network>…</Network></RemoteNetwork>`.
+    #[serde(rename = "RemoteNetwork", default)]
+    pub remote_network: Option<NetworkRefList>,
+    /// IKE version if present at connection level (often only in the profile).
+    #[serde(rename = "IKEVersion", default)]
+    pub ike_version: Option<String>,
 }
 
-impl IpsecConnection {
+impl IpsecConfig {
     pub fn is_site_to_site(&self) -> bool {
-        self.connection_type
-            .as_deref()
-            .map(|t| t.to_ascii_lowercase().contains("site"))
-            .unwrap_or(false)
+        self.connection_type.as_deref().map(|t| t.to_ascii_lowercase().contains("site")).unwrap_or(false)
+    }
+    pub fn remote_subnets(&self) -> &[String] {
+        self.remote_network.as_ref().map(|n| n.networks.as_slice()).unwrap_or(&[])
     }
 }
 
-/// A network interface and the zone/addressing bound to it (best-effort schema).
+/// A network interface and the zone/addressing bound to it. Schema confirmed
+/// against the Sophos migration utility / config templates: the zone tag is
+/// `NetworkZone` (we accept `Zone` as an alias too).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Interface {
     #[serde(rename = "Name")]
     pub name: String,
-    #[serde(rename = "Zone", default)]
+    #[serde(rename = "Hardware", default)]
+    pub hardware: Option<String>,
+    #[serde(rename = "NetworkZone", alias = "Zone", default)]
     pub zone: Option<String>,
     #[serde(rename = "IPAddress", default)]
     pub ip_address: Option<String>,
@@ -113,24 +126,34 @@ pub struct Interface {
 
 /// A NAT rule. We model the destination-NAT (DNAT) fields used to follow a
 /// public address to its internal host (best-effort schema; self-validates).
+/// NAT rule. Schema confirmed against the migration-utility `NATRule` template:
+/// original source/destination are network-object lists; translated source/
+/// destination are scalar host-object names.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NatRule {
     #[serde(rename = "Name")]
     pub name: String,
     #[serde(rename = "Status", default)]
     pub status: Option<String>,
-    /// Pre-NAT (public) destination host-object name.
-    #[serde(rename = "OriginalDestination", default)]
-    pub original_destination: Option<String>,
+    #[serde(rename = "OriginalSourceNetworks", default)]
+    pub original_source_networks: Option<NetworkRefList>,
+    #[serde(rename = "OriginalDestinationNetworks", default)]
+    pub original_destination_networks: Option<NetworkRefList>,
     /// Post-NAT (internal) destination host-object name.
     #[serde(rename = "TranslatedDestination", default)]
     pub translated_destination: Option<String>,
-    /// Pre-NAT source host-object name (for SNAT matching).
-    #[serde(rename = "OriginalSource", default)]
-    pub original_source: Option<String>,
     /// Post-NAT (masqueraded) source host-object name.
     #[serde(rename = "TranslatedSource", default)]
     pub translated_source: Option<String>,
+}
+
+impl NatRule {
+    pub fn original_destinations(&self) -> &[String] {
+        self.original_destination_networks.as_ref().map(|n| n.networks.as_slice()).unwrap_or(&[])
+    }
+    pub fn original_sources(&self) -> &[String] {
+        self.original_source_networks.as_ref().map(|n| n.networks.as_slice()).unwrap_or(&[])
+    }
 }
 
 /// A static (unicast) route. Best-effort schema; self-validates against a live export.
@@ -138,7 +161,8 @@ pub struct NatRule {
 pub struct StaticRoute {
     #[serde(rename = "Name", default)]
     pub name: Option<String>,
-    #[serde(rename = "Destination", default)]
+    // Confirmed tag is `DestinationIP` (migration-utility UnicastRoute template).
+    #[serde(rename = "DestinationIP", alias = "Destination", default)]
     pub destination: Option<String>,
     #[serde(rename = "Netmask", default)]
     pub netmask: Option<String>,
@@ -354,6 +378,11 @@ pub struct Hotfix {
 // ── Search / query primitives ───────────────────────────────────────────────
 
 impl SophosConfig {
+    /// Iterate the IPsec connection bodies (unwrapping the `<Configuration>` layer).
+    pub fn ipsec_connections(&self) -> impl Iterator<Item = &IpsecConfig> + '_ {
+        self.ipsec.iter().map(|c| &c.configuration)
+    }
+
     /// Rules carrying traffic from `src_zone` into `dst_zone` (case-insensitive).
     pub fn rules_from_to(&self, src_zone: &str, dst_zone: &str) -> Vec<&FirewallRule> {
         self.firewall_rules

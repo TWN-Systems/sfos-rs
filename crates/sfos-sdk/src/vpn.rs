@@ -13,7 +13,7 @@ use std::collections::BTreeSet;
 use ipnetwork::IpNetwork;
 
 use crate::extract::resolve_network;
-use crate::sophos::{IpsecConnection, SophosConfig};
+use crate::sophos::{IpsecConfig, SophosConfig};
 
 #[derive(Debug, Clone)]
 pub struct VpnFinding {
@@ -30,7 +30,7 @@ fn finding(sev: &str, check: &str, object: String, message: String) -> VpnFindin
 /// Single-firewall VPN best-practice / deprecation posture.
 pub fn posture(cfg: &SophosConfig) -> Vec<VpnFinding> {
     let mut out = Vec::new();
-    for c in &cfg.ipsec_connections {
+    for c in cfg.ipsec_connections() {
         if is_ikev1(c) {
             out.push(finding(
                 "MEDIUM",
@@ -43,7 +43,7 @@ pub fn posture(cfg: &SophosConfig) -> Vec<VpnFinding> {
     out
 }
 
-fn is_ikev1(c: &IpsecConnection) -> bool {
+fn is_ikev1(c: &IpsecConfig) -> bool {
     match c.ike_version.as_deref() {
         Some(v) => {
             let v = v.to_ascii_lowercase();
@@ -62,16 +62,16 @@ pub fn compare_site_to_site(
     b: &SophosConfig,
 ) -> Vec<VpnFinding> {
     let mut out = Vec::new();
-    let a_s2s: Vec<&IpsecConnection> = a.ipsec_connections.iter().filter(|c| c.is_site_to_site()).collect();
-    let b_s2s: Vec<&IpsecConnection> = b.ipsec_connections.iter().filter(|c| c.is_site_to_site()).collect();
+    let a_s2s: Vec<&IpsecConfig> = a.ipsec_connections().filter(|c| c.is_site_to_site()).collect();
+    let b_s2s: Vec<&IpsecConfig> = b.ipsec_connections().filter(|c| c.is_site_to_site()).collect();
 
     for ca in &a_s2s {
         let la = nets(a, &ca.local_subnets);
-        let ra = nets(a, &ca.remote_subnets);
+        let ra = nets(a, ca.remote_subnets());
 
         let mate = b_s2s.iter().find(|cb| {
             let lb = nets(b, &cb.local_subnets);
-            let rb = nets(b, &cb.remote_subnets);
+            let rb = nets(b, cb.remote_subnets());
             overlaps(&la, &rb) && overlaps(&ra, &lb)
         });
 
@@ -89,7 +89,7 @@ pub fn compare_site_to_site(
             )),
             Some(cb) => {
                 let lb = nets(b, &cb.local_subnets);
-                let rb = nets(b, &cb.remote_subnets);
+                let rb = nets(b, cb.remote_subnets());
                 let pair = format!("{}↔{}", ca.name, cb.name);
                 if set(&la) != set(&rb) || set(&ra) != set(&lb) {
                     out.push(finding(
@@ -127,10 +127,10 @@ pub fn compare_site_to_site(
 
     for cb in &b_s2s {
         let lb = nets(b, &cb.local_subnets);
-        let rb = nets(b, &cb.remote_subnets);
+        let rb = nets(b, cb.remote_subnets());
         let mated = a_s2s.iter().any(|ca| {
             let la = nets(a, &ca.local_subnets);
-            let ra = nets(a, &ca.remote_subnets);
+            let ra = nets(a, ca.remote_subnets());
             overlaps(&lb, &ra) && overlaps(&rb, &la)
         });
         if !mated {

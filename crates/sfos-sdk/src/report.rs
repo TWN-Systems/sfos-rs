@@ -5,7 +5,7 @@
 
 use serde::Serialize;
 
-use crate::sophos::{IpsecConnection, SophosConfig};
+use crate::sophos::{IpsecConfig, SophosConfig};
 use crate::{extract, shadow, vpn};
 
 #[derive(Serialize)]
@@ -58,13 +58,13 @@ pub fn build(hostname: &str, cfg: &SophosConfig) -> Report {
         ip_hosts: cfg.ip_hosts.len(),
         ip_host_groups: cfg.ip_host_groups.len(),
         services: cfg.services.len(),
-        ipsec_connections: cfg.ipsec_connections.len(),
+        ipsec_connections: cfg.ipsec_connections().count(),
         interfaces: cfg.interfaces.len(),
         nat_rules: cfg.nat_rules.len(),
         static_routes: cfg.static_routes.len(),
     };
 
-    let ipsec_tunnels = cfg.ipsec_connections.iter().map(tunnel_info).collect();
+    let ipsec_tunnels = cfg.ipsec_connections().map(tunnel_info).collect();
 
     let mut findings: Vec<Finding> = Vec::new();
     for z in cfg.undefined_zone_refs() {
@@ -94,7 +94,7 @@ pub fn build(hostname: &str, cfg: &SophosConfig) -> Report {
     Report { hostname: hostname.into(), summary, ipsec_tunnels, findings }
 }
 
-fn tunnel_info(c: &IpsecConnection) -> TunnelInfo {
+fn tunnel_info(c: &IpsecConfig) -> TunnelInfo {
     TunnelInfo {
         name: c.name.clone(),
         connection_type: c.connection_type.clone(),
@@ -103,7 +103,7 @@ fn tunnel_info(c: &IpsecConnection) -> TunnelInfo {
         ike_version: c.ike_version.clone(),
         remote_gateway: c.remote_gateway.clone(),
         local_subnets: c.local_subnets.clone(),
-        remote_subnets: c.remote_subnets.clone(),
+        remote_subnets: c.remote_subnets().to_vec(),
     }
 }
 

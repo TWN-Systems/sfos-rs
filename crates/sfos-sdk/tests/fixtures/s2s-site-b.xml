@@ -4,13 +4,15 @@
   <!-- Misconfig: site B only allows a /24 of site A's network instead of the full /16. -->
   <IPHost><Name>A-LAN-partial</Name><HostType>Network</HostType><IPAddress>10.1.1.0</IPAddress><Subnet>255.255.255.0</Subnet></IPHost>
   <VPNIPSecConnection>
-    <Name>to-site-a</Name>
-    <ConnectionType>SiteToSite</ConnectionType>
-    <Status>Active</Status>
-    <Policy>DefaultHeadOffice</Policy>
-    <AuthenticationType>PresharedKey</AuthenticationType>
-    <IKEVersion>IKEv2</IKEVersion>
-    <LocalSubnet>B-LAN</LocalSubnet>
-    <RemoteSubnet>A-LAN-partial</RemoteSubnet>
+    <Configuration>
+      <Name>to-site-a</Name>
+      <ConnectionType>SiteToSite</ConnectionType>
+      <Status>Active</Status>
+      <Policy>DefaultHeadOffice</Policy>
+      <AuthenticationType>PresharedKey</AuthenticationType>
+      <IKEVersion>IKEv2</IKEVersion>
+      <LocalSubnet>B-LAN</LocalSubnet>
+      <RemoteNetwork><Network>A-LAN-partial</Network></RemoteNetwork>
+    </Configuration>
   </VPNIPSecConnection>
 </Configuration>

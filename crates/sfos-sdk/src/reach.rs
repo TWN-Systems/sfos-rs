@@ -208,10 +208,9 @@ pub fn site_path(
     // Site A: out to the tunnel that covers the destination.
     let src_zone_a = zone_of_ip(a, src).unwrap_or_else(|| "?".into());
     let tunnel_a = a
-        .ipsec_connections
-        .iter()
+        .ipsec_connections()
         .filter(|c| c.is_site_to_site())
-        .find(|c| subnets_contain(a, &c.remote_subnets, dst))
+        .find(|c| subnets_contain(a, c.remote_subnets(), dst))
         .map(|c| c.name.clone());
 
     let a_allow = match &tunnel_a {
@@ -228,10 +227,9 @@ pub fn site_path(
 
     // Tunnel pairing on B (B must have a tunnel back covering this flow).
     let tunnel_b = b
-        .ipsec_connections
-        .iter()
+        .ipsec_connections()
         .filter(|c| c.is_site_to_site())
-        .find(|c| subnets_contain(b, &c.remote_subnets, src) && subnets_contain(b, &c.local_subnets, dst))
+        .find(|c| subnets_contain(b, c.remote_subnets(), src) && subnets_contain(b, &c.local_subnets, dst))
         .map(|c| c.name.clone());
     let paired = tunnel_a.is_some() && tunnel_b.is_some();
     match (&tunnel_a, &tunnel_b) {
@@ -276,9 +274,11 @@ fn dnat_for(cfg: &SophosConfig, dst: IpAddr) -> Option<(String, IpAddr)> {
         if matches!(n.status.as_deref(), Some(s) if s.eq_ignore_ascii_case("Disable")) {
             continue;
         }
-        let Some(orig) = n.original_destination.as_deref() else { continue };
-        let Some(onet) = resolve_network(cfg, orig) else { continue };
-        if !onet.contains(dst) {
+        let hits = n
+            .original_destinations()
+            .iter()
+            .any(|name| resolve_network(cfg, name).map(|net| net.contains(dst)).unwrap_or(false));
+        if !hits {
             continue;
         }
         if let Some(t) = n.translated_destination.as_deref() {
@@ -296,10 +296,9 @@ fn snat_for(cfg: &SophosConfig, src: IpAddr, _dst: IpAddr) -> Option<String> {
             continue;
         }
         let Some(ts) = n.translated_source.as_deref() else { continue };
-        let src_ok = match n.original_source.as_deref() {
-            Some(os) => resolve_network(cfg, os).map(|net| net.contains(src)).unwrap_or(false),
-            None => true,
-        };
+        let srcs = n.original_sources();
+        let src_ok = srcs.is_empty()
+            || srcs.iter().any(|name| resolve_network(cfg, name).map(|net| net.contains(src)).unwrap_or(false));
         if src_ok {
             return Some(format!("source NAT'd to '{ts}' by rule '{}'", n.name));
         }
