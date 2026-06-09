@@ -11,6 +11,6 @@ name = "sfos-rs"
 path = "src/main.rs"
 
 [dependencies]
-sfos-sdk = { path = "../sfos-sdk" }
+sfos-sdk = { path = "../sfos-sdk", version = "0.1.0" }
 clap = { version = "4", features = ["derive", "color"] }
 serde_json = "1"
