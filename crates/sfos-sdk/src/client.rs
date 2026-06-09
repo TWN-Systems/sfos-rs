@@ -20,7 +20,26 @@
 
 use std::time::Duration;
 
+use crate::entity::SophosEntity;
 use crate::sophos::{parse_entities, SophosConfig};
+
+/// Comparison operator for a `<Get>` `<Filter>` (per the SFOS XML API).
+#[derive(Debug, Clone, Copy)]
+pub enum FilterCriteria {
+    Eq,
+    Neq,
+    Like,
+}
+
+impl FilterCriteria {
+    fn as_attr(&self) -> &'static str {
+        match self {
+            FilterCriteria::Eq => "=",
+            FilterCriteria::Neq => "!=",
+            FilterCriteria::Like => "like",
+        }
+    }
+}
 
 /// Entity types this SDK can export from a live firewall, in dependency order.
 pub const EXPORTABLE_ENTITIES: &[&str] =
@@ -167,6 +186,59 @@ impl Client {
         let body = self.post(&self.remove_request_xml(entity, name))?;
         check_status(&body)
     }
+
+    // ── Typed helpers (parity with the Python SDK's per-entity methods) ──
+
+    /// Create a typed entity, e.g. `client.create(&IpHost::ip("web", "10.0.0.5"))`.
+    pub fn create<T: SophosEntity>(&self, entity: &T) -> Result<(), SdkError> {
+        self.set(&entity.to_xml(), "add")
+    }
+
+    /// Update a typed entity.
+    pub fn update<T: SophosEntity>(&self, entity: &T) -> Result<(), SdkError> {
+        self.set(&entity.to_xml(), "update")
+    }
+
+    /// Delete a typed entity by its own name.
+    pub fn delete<T: SophosEntity>(&self, entity: &T) -> Result<(), SdkError> {
+        self.remove(T::TAG, entity.name())
+    }
+
+    // ── Filtered get (server-side `<Filter>`) ──
+
+    fn get_filter_request_xml(&self, entity: &str, key: &str, criteria: FilterCriteria, value: &str) -> String {
+        format!(
+            "<Request>{}<Get><{e}><Filter><key name=\"{}\" criteria=\"{}\">{}</key></Filter></{e}></Get></Request>",
+            self.login_block(),
+            key,
+            criteria.as_attr(),
+            xml_escape(value),
+            e = entity
+        )
+    }
+
+    /// Fetch entities matching a filter (e.g. name `like` "web"), as raw XML.
+    pub fn get_raw_filtered(
+        &self,
+        entity: &str,
+        key: &str,
+        criteria: FilterCriteria,
+        value: &str,
+    ) -> Result<String, SdkError> {
+        self.post(&self.get_filter_request_xml(entity, key, criteria, value))
+    }
+
+    /// Fetch entities matching a filter, parsed into a (partial) [`SophosConfig`].
+    pub fn get_entities_filtered(
+        &self,
+        entity: &str,
+        key: &str,
+        criteria: FilterCriteria,
+        value: &str,
+    ) -> Result<SophosConfig, SdkError> {
+        let body = self.get_raw_filtered(entity, key, criteria, value)?;
+        parse_entities(&body).map_err(|e| SdkError::Xml(e.to_string()))
+    }
 }
 
 fn merge(into: &mut SophosConfig, part: SophosConfig) {
@@ -233,6 +305,23 @@ mod tests {
         assert!(set.contains("<Set operation=\"add\"><IPHost><Name>h</Name></IPHost></Set>"));
         let rm = c.remove_request_xml("IPHost", "old");
         assert!(rm.contains("<Remove><IPHost><Name>old</Name></IPHost></Remove>"));
+    }
+
+    #[test]
+    fn filter_request_xml_is_well_formed() {
+        let c = client();
+        let xml = c.get_filter_request_xml("IPHost", "Name", FilterCriteria::Like, "web");
+        assert!(xml.contains(
+            "<Get><IPHost><Filter><key name=\"Name\" criteria=\"like\">web</key></Filter></IPHost></Get>"
+        ));
+    }
+
+    #[test]
+    fn typed_create_body_shape() {
+        use crate::sophos::IpHost;
+        let c = client();
+        let body = c.set_request_xml(&IpHost::ip("web", "10.0.0.5").to_xml(), "add");
+        assert!(body.contains("<Set operation=\"add\"><IPHost><Name>web</Name>"));
     }
 
     #[test]

@@ -11,6 +11,7 @@
 
 pub mod acl;
 pub mod client;
+pub mod entity;
 pub mod extract;
 pub mod ir;
 pub mod registry;
