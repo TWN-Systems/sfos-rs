@@ -4,6 +4,12 @@ A standalone **Rust SDK + CLI for Sophos SFOS firewalls** — "Batfish for Sopho
 Parse an `Entities.xml` backup offline, or authenticate to a live firewall over the
 XML API, pull the entire configuration, and produce reports.
 
+> **Disclaimer:** sfos-rs is an independent community project and is **not affiliated
+> with, endorsed by, or supported by Sophos Ltd.** "Sophos" and "SFOS" are trademarks
+> of Sophos Ltd., used here only for identification. It is a clean-room Rust
+> implementation written against Sophos's public XML API. See
+> [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
+
 Workspace:
 
 - **`crates/sfos-sdk`** — the library (Rust port of the official `sophos-firewall-sdk` XML API):
@@ -61,3 +67,19 @@ and use the `Entities.xml` inside — or just use `fetch`/`export` against the l
 The XML API surface is driven by a uniform engine over an entity registry, so coverage
 grows by extending the catalogue. The live HTTP path is exercised against real firewalls;
 the request/response logic is unit-tested offline. Ansible/PowerShell ports are out of scope.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+## Attributions
+
+sfos-rs is not affiliated with Sophos. It is informed by Sophos's public XML API
+documentation and by the official Sophos firewall tooling. See
+[ATTRIBUTIONS.md](ATTRIBUTIONS.md) for full credits and references.
+
+## Security
+
+Supply-chain assurances (signed/attested releases) and vulnerability reporting are
+described in [SECURITY.md](SECURITY.md). CI runs opengrep (SAST), `cargo-audit`,
+`cargo-deny`, CodeQL (Rust), and OpenSSF Scorecard.
