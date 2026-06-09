@@ -10,6 +10,7 @@
 //! analysis from `sfos_analyzer_tool`, unified under one model.
 
 pub mod acl;
+pub mod apply;
 pub mod client;
 pub mod entity;
 pub mod extract;

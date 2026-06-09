@@ -72,6 +72,38 @@ enum Command {
     Path(PathArgs),
     /// Trace a flow across two firewalls and the site-to-site IPsec tunnel
     SitePath(SitePathArgs),
+    /// Plan (and optionally --commit) a desired config against a live/saved firewall
+    Apply(ApplyArgs),
+}
+
+#[derive(Args)]
+struct ApplyArgs {
+    /// Desired-state config (Entities.xml)
+    desired: PathBuf,
+    /// Plan against a saved config file instead of a live firewall (offline, dry-run only)
+    #[arg(long)]
+    live: Option<PathBuf>,
+    /// Firewall host to plan/apply against
+    #[arg(long)]
+    host: Option<String>,
+    /// XML API port
+    #[arg(long, default_value_t = 4444)]
+    port: u16,
+    /// Admin username (required with --host)
+    #[arg(long)]
+    user: Option<String>,
+    /// Admin password (or SFOS_PASSWORD)
+    #[arg(long)]
+    password: Option<String>,
+    /// Skip TLS certificate verification
+    #[arg(long)]
+    insecure: bool,
+    /// Also remove live objects not present in the desired config (dangerous)
+    #[arg(long)]
+    prune: bool,
+    /// Actually send the changes (default: dry-run plan only)
+    #[arg(long)]
+    commit: bool,
 }
 
 #[derive(Args)]
@@ -296,6 +328,7 @@ fn run(cli: &Cli) -> Result<ExitCode, String> {
         Command::Explain(a) => cmd_explain(&load(&a.file)?, a, cli.format),
         Command::Path(a) => cmd_path(&load(&a.file)?, a, cli.format),
         Command::SitePath(a) => cmd_site_path(a, cli.format),
+        Command::Apply(a) => cmd_apply(a, cli.format),
         Command::S2s(a) => cmd_s2s(a, cli.format),
         Command::Report(a) => {
             let cfg = load(&a.file)?;
@@ -511,6 +544,89 @@ fn cmd_site_path(a: &SitePathArgs, fmt: Format) -> Result<ExitCode, String> {
         }
     }
     Ok(if r.delivered { ExitCode::SUCCESS } else { ExitCode::FAILURE })
+}
+
+fn cmd_apply(a: &ApplyArgs, fmt: Format) -> Result<ExitCode, String> {
+    use sfos_sdk::apply::{plan, Action};
+
+    let desired = load(&a.desired)?;
+
+    // "live" side: a saved file (offline plan) or a live firewall (fetched).
+    let (live, client) = if let Some(lf) = &a.live {
+        (load(lf)?, None)
+    } else if let Some(host) = &a.host {
+        let user = a.user.as_deref().ok_or("--user is required with --host")?;
+        let password = a
+            .password
+            .clone()
+            .or_else(|| std::env::var("SFOS_PASSWORD").ok())
+            .ok_or("provide --password or set SFOS_PASSWORD")?;
+        let c = Client::new(host, a.port, user, &password, !a.insecure).map_err(|e| e.to_string())?;
+        let live = c.export().map_err(|e| e.to_string())?;
+        (live, Some(c))
+    } else {
+        return Err("specify --live <file> for an offline plan, or --host <fw> to plan against a live firewall".into());
+    };
+
+    let items = plan(&desired, &live, a.prune);
+
+    match fmt {
+        Format::Json => {
+            let arr: Vec<_> = items
+                .iter()
+                .map(|i| {
+                    serde_json::json!({
+                        "action": i.action.label(), "tag": i.tag, "name": i.name,
+                        "operation": i.action.operation(), "xml": i.xml,
+                    })
+                })
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&arr).unwrap());
+        }
+        Format::Text => {
+            if items.is_empty() {
+                println!("No changes — desired config matches live.");
+            }
+            for i in &items {
+                println!("  {} {:<7} {:<14} {}", i.action.symbol(), i.action.label(), i.tag, i.name);
+                if !i.xml.is_empty() {
+                    println!("      <Set operation=\"{}\">{}</Set>", i.action.operation(), i.xml);
+                }
+            }
+            if !items.is_empty() {
+                let adds = items.iter().filter(|i| i.action == Action::Add).count();
+                let upd = items.iter().filter(|i| i.action == Action::Update).count();
+                let rem = items.iter().filter(|i| i.action == Action::Remove).count();
+                println!("\n{} change(s): {adds} add, {upd} update, {rem} remove", items.len());
+            }
+        }
+    }
+
+    if a.commit {
+        let Some(client) = client else {
+            return Err("--commit requires --host (cannot write changes to a --live file)".into());
+        };
+        let mut applied = 0;
+        let mut failed = 0;
+        for i in &items {
+            let res = match i.action {
+                Action::Add | Action::Update => client.set(&i.xml, i.action.operation()),
+                Action::Remove => client.remove(i.tag, &i.name),
+            };
+            match res {
+                Ok(()) => applied += 1,
+                Err(e) => {
+                    failed += 1;
+                    eprintln!("  ! {} {} failed: {e}", i.action.label(), i.name);
+                }
+            }
+        }
+        eprintln!("applied {applied} change(s){}", if failed > 0 { format!(", {failed} failed") } else { String::new() });
+        Ok(if failed > 0 { ExitCode::FAILURE } else { ExitCode::SUCCESS })
+    } else {
+        eprintln!("(dry run — re-run with --host … --commit to apply)");
+        Ok(ExitCode::SUCCESS)
+    }
 }
 
 fn rule_json(r: &reach::RuleRef) -> serde_json::Value {
