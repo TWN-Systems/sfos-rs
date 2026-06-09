@@ -45,6 +45,10 @@ pub struct SophosConfig {
     pub services: Vec<ServiceObj>,
     #[serde(rename = "VPNIPSecConnection", default)]
     pub ipsec_connections: Vec<IpsecConnection>,
+    #[serde(rename = "Interface", default)]
+    pub interfaces: Vec<Interface>,
+    #[serde(rename = "NATRule", default)]
+    pub nat_rules: Vec<NatRule>,
     #[serde(rename = "AdminSettings", default)]
     pub admin_settings: Option<AdminSettings>,
     #[serde(rename = "Hotfix", default)]
@@ -90,6 +94,35 @@ impl IpsecConnection {
             .map(|t| t.to_ascii_lowercase().contains("site"))
             .unwrap_or(false)
     }
+}
+
+/// A network interface and the zone/addressing bound to it (best-effort schema).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Interface {
+    #[serde(rename = "Name")]
+    pub name: String,
+    #[serde(rename = "Zone", default)]
+    pub zone: Option<String>,
+    #[serde(rename = "IPAddress", default)]
+    pub ip_address: Option<String>,
+    #[serde(rename = "Netmask", default)]
+    pub netmask: Option<String>,
+}
+
+/// A NAT rule. We model the destination-NAT (DNAT) fields used to follow a
+/// public address to its internal host (best-effort schema; self-validates).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct NatRule {
+    #[serde(rename = "Name")]
+    pub name: String,
+    #[serde(rename = "Status", default)]
+    pub status: Option<String>,
+    /// Pre-NAT (public) destination host-object name.
+    #[serde(rename = "OriginalDestination", default)]
+    pub original_destination: Option<String>,
+    /// Post-NAT (internal) destination host-object name.
+    #[serde(rename = "TranslatedDestination", default)]
+    pub translated_destination: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

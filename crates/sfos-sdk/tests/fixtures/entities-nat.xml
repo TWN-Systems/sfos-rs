@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration>
+  <Zone><Name>LAN</Name><Type>LAN</Type></Zone>
+  <Zone><Name>WAN</Name><Type>WAN</Type></Zone>
+  <Zone><Name>DMZ</Name><Type>DMZ</Type></Zone>
+  <Interface><Name>PortA</Name><Zone>LAN</Zone><IPAddress>10.0.63.1</IPAddress><Netmask>255.255.255.0</Netmask></Interface>
+  <Interface><Name>PortB</Name><Zone>WAN</Zone><IPAddress>203.0.113.1</IPAddress><Netmask>255.255.255.0</Netmask></Interface>
+  <IPHost><Name>PublicWeb</Name><IPFamily>IPv4</IPFamily><HostType>IP</HostType><IPAddress>203.0.113.10</IPAddress></IPHost>
+  <IPHost><Name>WebServer</Name><IPFamily>IPv4</IPFamily><HostType>IP</HostType><IPAddress>10.0.10.5</IPAddress></IPHost>
+  <Services>
+    <Name>HTTPS</Name><Type>TCPorUDP</Type>
+    <ServiceDetails><ServiceDetail><SourcePort>1:65535</SourcePort><DestinationPort>443</DestinationPort><Protocol>TCP</Protocol></ServiceDetail></ServiceDetails>
+  </Services>
+  <!-- Public address 203.0.113.10 is DNAT'd to the internal web server. -->
+  <NATRule>
+    <Name>web-dnat</Name><Status>Enable</Status>
+    <OriginalDestination>PublicWeb</OriginalDestination>
+    <TranslatedDestination>WebServer</TranslatedDestination>
+  </NATRule>
+  <FirewallRule>
+    <Name>WAN-to-web</Name><Status>Enable</Status><PolicyType>Network</PolicyType>
+    <NetworkPolicy>
+      <Action>Accept</Action><LogTraffic>Enable</LogTraffic>
+      <SourceZones><Zone>WAN</Zone></SourceZones>
+      <DestinationZones><Zone>DMZ</Zone></DestinationZones>
+      <DestinationNetworks><Network>WebServer</Network></DestinationNetworks>
+      <Services><Service>HTTPS</Service></Services>
+    </NetworkPolicy>
+  </FirewallRule>
+</Configuration>

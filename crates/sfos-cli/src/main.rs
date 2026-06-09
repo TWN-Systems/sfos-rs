@@ -66,8 +66,17 @@ enum Command {
     S2s(S2sArgs),
     /// Granular per-subsystem state report (summary, VPN tunnels, findings)
     Report(FileArgs),
-    /// Emit normalized, version-controllable IaC (declarative JSON) from the config
-    Iac(FileArgs),
+    /// Emit version-controllable IaC from the config (normalized JSON, or --ansible)
+    Iac(IacArgs),
+}
+
+#[derive(Args)]
+struct IacArgs {
+    /// Path to Entities.xml
+    file: PathBuf,
+    /// Emit a sophos.sophos_firewall Ansible playbook instead of normalized JSON
+    #[arg(long)]
+    ansible: bool,
 }
 
 #[derive(Args)]
@@ -86,6 +95,9 @@ struct ExplainArgs {
     /// Source zone to evaluate (repeatable); default: every zone in the config
     #[arg(long = "from", value_name = "ZONE")]
     from: Vec<String>,
+    /// Source IP — infers the source zone from interface addressing (if --from is omitted)
+    #[arg(long)]
+    src: Option<String>,
 }
 
 #[derive(Args)]
@@ -253,8 +265,11 @@ fn run(cli: &Cli) -> Result<ExitCode, String> {
         }
         Command::Iac(a) => {
             let cfg = load(&a.file)?;
-            let norm = sfos_sdk::iac::normalize(&cfg);
-            println!("{}", serde_json::to_string_pretty(&norm).unwrap());
+            if a.ansible {
+                print!("{}", sfos_sdk::iac::to_ansible(&cfg));
+            } else {
+                println!("{}", serde_json::to_string_pretty(&sfos_sdk::iac::normalize(&cfg)).unwrap());
+            }
             Ok(ExitCode::SUCCESS)
         }
         Command::Entities => {
@@ -297,13 +312,19 @@ fn cmd_explain(cfg: &SophosConfig, a: &ExplainArgs, fmt: Format) -> Result<ExitC
         "icmp" => Protocol::Icmp,
         other => return Err(format!("unknown --proto '{other}' (use tcp|udp|icmp)")),
     };
-    let zones: Vec<String> = if a.from.is_empty() {
-        cfg.zones.iter().map(|z| z.name.clone()).collect()
-    } else {
+    let zones: Vec<String> = if !a.from.is_empty() {
         a.from.clone()
+    } else if let Some(src) = &a.src {
+        let sip: IpAddr = src.parse().map_err(|_| format!("invalid --src IP '{src}'"))?;
+        match sfos_sdk::extract::zone_of_ip(cfg, sip) {
+            Some(z) => vec![z],
+            None => return Err(format!("could not infer a zone for --src {src} (no interface covers it)")),
+        }
+    } else {
+        cfg.zones.iter().map(|z| z.name.clone()).collect()
     };
     if zones.is_empty() {
-        return Err("no zones to evaluate — config has no zones; pass --from".into());
+        return Err("no zones to evaluate — config has no zones; pass --from or --src".into());
     }
     let result = reach::explain(cfg, dst, proto, a.dport, &zones);
 
@@ -315,6 +336,9 @@ fn cmd_explain(cfg: &SophosConfig, a: &ExplainArgs, fmt: Format) -> Result<ExitC
                 "protocol": a.proto,
                 "dst_port": a.dport,
                 "diverges": result.diverges(),
+                "nat": result.nat.as_ref().map(|n| serde_json::json!({
+                    "rule": n.rule, "original": n.original, "translated": n.translated,
+                })),
                 "vantages": result.vantages.iter().map(|v| serde_json::json!({
                     "zone": v.zone,
                     "allowed": v.allowed,
@@ -327,6 +351,12 @@ fn cmd_explain(cfg: &SophosConfig, a: &ExplainArgs, fmt: Format) -> Result<ExitC
         }
         Format::Text => {
             println!("Reachability to {} ({}) {}/{}", a.to, dst, a.proto, a.dport);
+            if let Some(n) = &result.nat {
+                println!(
+                    "  NAT: {} is DNAT'd to {} by rule '{}' — firewall evaluated against the internal host",
+                    n.original, n.translated, n.rule
+                );
+            }
             for v in &result.vantages {
                 println!("  {:<12} {:<6} {}", v.zone, if v.allowed { "ALLOW" } else { "BLOCK" }, v.reason);
             }

@@ -134,6 +134,25 @@ fn parse_port_range(s: &str) -> Option<(u16, u16)> {
     }
 }
 
+/// Infer which zone an IP belongs to, from interface addressing.
+pub fn zone_of_ip(cfg: &SophosConfig, ip: std::net::IpAddr) -> Option<String> {
+    for i in &cfg.interfaces {
+        let (Some(addr), Some(mask)) = (i.ip_address.as_deref(), i.netmask.as_deref()) else {
+            continue;
+        };
+        let (Ok(a), Ok(m)) = (addr.parse::<std::net::Ipv4Addr>(), mask.parse::<std::net::Ipv4Addr>())
+        else {
+            continue;
+        };
+        if let Ok(net) = Ipv4Network::with_netmask(a, m) {
+            if IpNetwork::V4(net).contains(ip) {
+                return i.zone.clone();
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,5 +177,13 @@ mod tests {
     fn network_object_resolves_with_netmask() {
         let cfg = parse_entities(ENTITIES).unwrap();
         assert_eq!(resolve_network(&cfg, "LAN-Net").unwrap().to_string(), "10.0.0.0/16");
+    }
+
+    #[test]
+    fn zone_inferred_from_interface() {
+        let cfg = parse_entities(include_str!("../tests/fixtures/entities-nat.xml")).unwrap();
+        assert_eq!(zone_of_ip(&cfg, "10.0.63.5".parse().unwrap()).as_deref(), Some("LAN"));
+        assert_eq!(zone_of_ip(&cfg, "203.0.113.9".parse().unwrap()).as_deref(), Some("WAN"));
+        assert_eq!(zone_of_ip(&cfg, "8.8.8.8".parse().unwrap()), None);
     }
 }

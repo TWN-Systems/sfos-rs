@@ -55,11 +55,22 @@ pub struct VantageVerdict {
     pub reason: String,
 }
 
+/// A destination-NAT translation applied before firewall evaluation.
+#[derive(Debug, Clone)]
+pub struct NatHop {
+    pub rule: String,
+    pub original: String,
+    pub translated: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct ExplainResult {
     pub vantages: Vec<VantageVerdict>,
     /// Every rule that touches this destination + service, for context.
     pub related: Vec<RuleRef>,
+    /// Set when the destination is reached via a DNAT rule (firewall is then
+    /// evaluated against the translated, internal destination).
+    pub nat: Option<NatHop>,
 }
 
 impl ExplainResult {
@@ -81,14 +92,43 @@ pub fn explain(
     dport: u16,
     zones: &[String],
 ) -> ExplainResult {
-    let vantages = zones.iter().map(|z| evaluate_zone(cfg, z, dst, proto, dport)).collect();
+    // Follow a DNAT (public → internal) before evaluating the firewall, so the
+    // verdict reflects the host traffic actually reaches.
+    let (effective_dst, nat) = match dnat_for(cfg, dst) {
+        Some((rule, tip)) => {
+            (tip, Some(NatHop { rule, original: dst.to_string(), translated: tip.to_string() }))
+        }
+        None => (dst, None),
+    };
+    let vantages = zones.iter().map(|z| evaluate_zone(cfg, z, effective_dst, proto, dport)).collect();
     let related = cfg
         .firewall_rules
         .iter()
-        .filter(|r| dst_matches(cfg, r, dst) && service_matches(cfg, r, proto, dport))
+        .filter(|r| dst_matches(cfg, r, effective_dst) && service_matches(cfg, r, proto, dport))
         .map(RuleRef::from)
         .collect();
-    ExplainResult { vantages, related }
+    ExplainResult { vantages, related, nat }
+}
+
+/// If `dst` matches the original (public) destination of an enabled DNAT rule,
+/// return (rule name, translated internal address).
+fn dnat_for(cfg: &SophosConfig, dst: IpAddr) -> Option<(String, IpAddr)> {
+    for n in &cfg.nat_rules {
+        if matches!(n.status.as_deref(), Some(s) if s.eq_ignore_ascii_case("Disable")) {
+            continue;
+        }
+        let Some(orig) = n.original_destination.as_deref() else { continue };
+        let Some(onet) = resolve_network(cfg, orig) else { continue };
+        if !onet.contains(dst) {
+            continue;
+        }
+        if let Some(t) = n.translated_destination.as_deref() {
+            if let Some(tnet) = resolve_network(cfg, t) {
+                return Some((n.name.clone(), tnet.network()));
+            }
+        }
+    }
+    None
 }
 
 fn evaluate_zone(cfg: &SophosConfig, zone: &str, dst: IpAddr, proto: Protocol, dport: u16) -> VantageVerdict {
@@ -184,5 +224,17 @@ mod tests {
         assert!(vpn.matched.is_none()); // default drop
         // the rule is relevant context for both
         assert!(r.related.iter().any(|rr| rr.name == "LAN-to-DMZ-web"));
+    }
+
+    #[test]
+    fn dnat_is_followed_to_internal_host() {
+        let cfg = parse_entities(include_str!("../tests/fixtures/entities-nat.xml")).unwrap();
+        let public: IpAddr = "203.0.113.10".parse().unwrap();
+        let r = explain(&cfg, public, Protocol::Tcp, 443, &["WAN".to_string()]);
+        let nat = r.nat.as_ref().expect("DNAT should be detected");
+        assert_eq!(nat.translated, "10.0.10.5");
+        assert_eq!(nat.rule, "web-dnat");
+        // After DNAT, WAN is permitted to the internal web server by WAN-to-web.
+        assert!(r.vantages[0].allowed);
     }
 }
