@@ -1,22 +1,22 @@
-//! Differential reachability explainer.
+//! Reachability: a single-node forwarding model plus a differential explainer.
 //!
-//! Answers questions like *"why can on-site (LAN) users reach this network but
-//! remote VPN users can't?"* — it evaluates the firewall rule base from several
-//! source zones (vantage points) to one destination + service, and names the
-//! rule that decided each verdict, plus every rule relevant to that destination.
+//! [`explain`] answers *"why can zone A reach X but zone B can't?"* across many
+//! source zones. [`forward`] simulates one packet end-to-end through the SFOS
+//! pipeline: ingress zone → DNAT → route lookup (egress interface/zone) →
+//! firewall (source zone → destination zone, post-DNAT destination, service) →
+//! SNAT → delivery.
 //!
-//! Scope: this reasons at the firewall-rule layer — source zones, destination
-//! network objects (resolved to CIDRs), and services (resolved to proto/port).
-//! NAT and interface/route effects are not yet modelled (a destination behind
-//! DNAT, or routing/zone-of-interface nuances, are out of scope for now).
+//! Modelled at the config layer; tag schemas for interfaces/NAT/routes are
+//! best-effort and self-validate against a live export.
 
 use std::net::IpAddr;
 
-use crate::extract::{resolve_network, resolve_service};
+use crate::extract::{resolve_network, resolve_service, zone_of_ip};
 use crate::ir::Protocol;
+use crate::route;
 use crate::sophos::{FirewallRule, SophosConfig};
 
-/// A firewall rule, flattened to the fields relevant to a reachability answer.
+/// A firewall rule flattened to the fields relevant to a reachability answer.
 #[derive(Debug, Clone)]
 pub struct RuleRef {
     pub name: String,
@@ -46,7 +46,6 @@ impl RuleRef {
     }
 }
 
-/// The verdict from one vantage (source zone) to the destination.
 #[derive(Debug, Clone)]
 pub struct VantageVerdict {
     pub zone: String,
@@ -66,15 +65,15 @@ pub struct NatHop {
 #[derive(Debug, Clone)]
 pub struct ExplainResult {
     pub vantages: Vec<VantageVerdict>,
-    /// Every rule that touches this destination + service, for context.
     pub related: Vec<RuleRef>,
-    /// Set when the destination is reached via a DNAT rule (firewall is then
-    /// evaluated against the translated, internal destination).
     pub nat: Option<NatHop>,
+    /// Routed egress zone of the (post-DNAT) destination, when routing is modelled.
+    pub egress_zone: Option<String>,
+    /// True when routing is modelled but no route covers the destination.
+    pub no_route: bool,
 }
 
 impl ExplainResult {
-    /// True if the vantages don't all agree (the interesting case).
     pub fn diverges(&self) -> bool {
         let mut it = self.vantages.iter().map(|v| v.allowed);
         match it.next() {
@@ -84,34 +83,110 @@ impl ExplainResult {
     }
 }
 
-/// Explain reachability to `dst`:`proto`/`dport` from each of `zones`.
-pub fn explain(
-    cfg: &SophosConfig,
-    dst: IpAddr,
-    proto: Protocol,
-    dport: u16,
-    zones: &[String],
-) -> ExplainResult {
-    // Follow a DNAT (public → internal) before evaluating the firewall, so the
-    // verdict reflects the host traffic actually reaches.
-    let (effective_dst, nat) = match dnat_for(cfg, dst) {
-        Some((rule, tip)) => {
-            (tip, Some(NatHop { rule, original: dst.to_string(), translated: tip.to_string() }))
-        }
-        None => (dst, None),
-    };
-    let vantages = zones.iter().map(|z| evaluate_zone(cfg, z, effective_dst, proto, dport)).collect();
+/// Differential reachability from each of `zones` to `dst`:`proto`/`dport`.
+pub fn explain(cfg: &SophosConfig, dst: IpAddr, proto: Protocol, dport: u16, zones: &[String]) -> ExplainResult {
+    let (effective_dst, nat) = apply_dnat(cfg, dst);
+
+    let rt = route::build(cfg);
+    let routed = !rt.is_empty();
+    let egress_zone = if routed { rt.zone_of(effective_dst) } else { None };
+    let no_route = routed && rt.lookup(effective_dst).is_none();
+
+    let vantages = zones
+        .iter()
+        .map(|z| {
+            if no_route {
+                VantageVerdict {
+                    zone: z.clone(),
+                    allowed: false,
+                    matched: None,
+                    reason: format!("no route to {effective_dst} — unreachable"),
+                }
+            } else {
+                first_match(cfg, Some(z), egress_zone.as_deref(), effective_dst, proto, dport)
+            }
+        })
+        .collect();
+
     let related = cfg
         .firewall_rules
         .iter()
         .filter(|r| dst_matches(cfg, r, effective_dst) && service_matches(cfg, r, proto, dport))
         .map(RuleRef::from)
         .collect();
-    ExplainResult { vantages, related, nat }
+
+    ExplainResult { vantages, related, nat, egress_zone, no_route }
 }
 
-/// If `dst` matches the original (public) destination of an enabled DNAT rule,
-/// return (rule name, translated internal address).
+/// One end-to-end forwarding decision for a single packet.
+#[derive(Debug, Clone)]
+pub struct ForwardResult {
+    pub ingress_zone: Option<String>,
+    pub nat: Option<NatHop>,
+    pub egress_zone: Option<String>,
+    pub egress_interface: Option<String>,
+    pub snat: Option<String>,
+    pub verdict: VantageVerdict,
+    pub delivered: bool,
+    pub stages: Vec<String>,
+}
+
+pub fn forward(cfg: &SophosConfig, src: IpAddr, dst: IpAddr, proto: Protocol, dport: u16) -> ForwardResult {
+    let mut stages = Vec::new();
+
+    let ingress_zone = zone_of_ip(cfg, src);
+    stages.push(format!("ingress: {src} -> zone {}", opt(&ingress_zone)));
+
+    let (effective_dst, nat) = apply_dnat(cfg, dst);
+    if let Some(n) = &nat {
+        stages.push(format!("dnat: {} -> {} (rule {})", n.original, n.translated, n.rule));
+    }
+
+    let rt = route::build(cfg);
+    let routed = !rt.is_empty();
+    let route = rt.lookup(effective_dst);
+    let (egress_zone, egress_interface) = match route {
+        Some(r) => (r.zone.clone(), r.interface.clone()),
+        None => (None, None),
+    };
+    match route {
+        Some(r) => stages.push(format!("route: {effective_dst} via {} (zone {})", opt(&r.interface), opt(&r.zone))),
+        None if routed => stages.push(format!("route: no route to {effective_dst}")),
+        None => stages.push("route: not modelled (no interfaces/routes in config)".into()),
+    }
+
+    let verdict = if routed && route.is_none() {
+        VantageVerdict {
+            zone: opt(&ingress_zone),
+            allowed: false,
+            matched: None,
+            reason: "no route to destination".into(),
+        }
+    } else {
+        first_match(cfg, ingress_zone.as_deref(), egress_zone.as_deref(), effective_dst, proto, dport)
+    };
+    stages.push(format!("firewall: {}", verdict.reason));
+
+    let snat = snat_for(cfg, src, effective_dst);
+    if let Some(s) = &snat {
+        stages.push(format!("snat: {s}"));
+    }
+
+    let delivered = verdict.allowed && !(routed && route.is_none());
+    stages.push(format!("result: {}", if delivered { "DELIVERED" } else { "BLOCKED" }));
+
+    ForwardResult { ingress_zone, nat, egress_zone, egress_interface, snat, verdict, delivered, stages }
+}
+
+// ── internals ───────────────────────────────────────────────────────────────
+
+fn apply_dnat(cfg: &SophosConfig, dst: IpAddr) -> (IpAddr, Option<NatHop>) {
+    match dnat_for(cfg, dst) {
+        Some((rule, tip)) => (tip, Some(NatHop { rule, original: dst.to_string(), translated: tip.to_string() })),
+        None => (dst, None),
+    }
+}
+
 fn dnat_for(cfg: &SophosConfig, dst: IpAddr) -> Option<(String, IpAddr)> {
     for n in &cfg.nat_rules {
         if matches!(n.status.as_deref(), Some(s) if s.eq_ignore_ascii_case("Disable")) {
@@ -131,12 +206,42 @@ fn dnat_for(cfg: &SophosConfig, dst: IpAddr) -> Option<(String, IpAddr)> {
     None
 }
 
-fn evaluate_zone(cfg: &SophosConfig, zone: &str, dst: IpAddr, proto: Protocol, dport: u16) -> VantageVerdict {
+fn snat_for(cfg: &SophosConfig, src: IpAddr, _dst: IpAddr) -> Option<String> {
+    for n in &cfg.nat_rules {
+        if matches!(n.status.as_deref(), Some(s) if s.eq_ignore_ascii_case("Disable")) {
+            continue;
+        }
+        let Some(ts) = n.translated_source.as_deref() else { continue };
+        let src_ok = match n.original_source.as_deref() {
+            Some(os) => resolve_network(cfg, os).map(|net| net.contains(src)).unwrap_or(false),
+            None => true,
+        };
+        if src_ok {
+            return Some(format!("source NAT'd to '{ts}' by rule '{}'", n.name));
+        }
+    }
+    None
+}
+
+/// First matching enabled rule; default-drop if none.
+fn first_match(
+    cfg: &SophosConfig,
+    src_zone: Option<&str>,
+    egress_zone: Option<&str>,
+    dst: IpAddr,
+    proto: Protocol,
+    dport: u16,
+) -> VantageVerdict {
+    let label = src_zone.unwrap_or("*").to_string();
     for r in &cfg.firewall_rules {
         if !r.enabled() {
             continue;
         }
-        if src_zone_matches(r, zone) && dst_matches(cfg, r, dst) && service_matches(cfg, r, proto, dport) {
+        if src_ok(r, src_zone)
+            && dest_zone_ok(r, egress_zone)
+            && dst_matches(cfg, r, dst)
+            && service_matches(cfg, r, proto, dport)
+        {
             let rr = RuleRef::from(r);
             let allowed = rr.action.eq_ignore_ascii_case("Accept");
             let reason = if allowed {
@@ -144,15 +249,10 @@ fn evaluate_zone(cfg: &SophosConfig, zone: &str, dst: IpAddr, proto: Protocol, d
             } else {
                 format!("blocked by rule '{}' (action {})", rr.name, rr.action)
             };
-            return VantageVerdict { zone: zone.to_string(), allowed, matched: Some(rr), reason };
+            return VantageVerdict { zone: label, allowed, matched: Some(rr), reason };
         }
     }
-    VantageVerdict {
-        zone: zone.to_string(),
-        allowed: false,
-        matched: None,
-        reason: "no matching rule — implicit default drop".into(),
-    }
+    VantageVerdict { zone: label, allowed: false, matched: None, reason: "no matching rule — implicit default drop".into() }
 }
 
 fn fmt(z: &[String]) -> String {
@@ -163,11 +263,26 @@ fn fmt(z: &[String]) -> String {
     }
 }
 
-fn src_zone_matches(r: &FirewallRule, zone: &str) -> bool {
+fn opt(z: &Option<String>) -> String {
+    z.clone().unwrap_or_else(|| "?".into())
+}
+
+fn src_ok(r: &FirewallRule, sz: Option<&str>) -> bool {
     match r.policy() {
         Some(p) => {
             let s = p.source_zone_names();
-            s.is_empty() || s.iter().any(|z| z.eq_ignore_ascii_case(zone))
+            s.is_empty() || sz.map(|z| s.iter().any(|x| x.eq_ignore_ascii_case(z))).unwrap_or(true)
+        }
+        None => false,
+    }
+}
+
+fn dest_zone_ok(r: &FirewallRule, egress: Option<&str>) -> bool {
+    let Some(eg) = egress else { return true };
+    match r.policy() {
+        Some(p) => {
+            let d = p.destination_zone_names();
+            d.is_empty() || d.iter().any(|z| z.eq_ignore_ascii_case(eg))
         }
         None => false,
     }
@@ -179,9 +294,7 @@ fn dst_matches(cfg: &SophosConfig, r: &FirewallRule, dst: IpAddr) -> bool {
     if nets.networks.is_empty() {
         return true;
     }
-    nets.networks
-        .iter()
-        .any(|n| resolve_network(cfg, n).map(|net| net.contains(dst)).unwrap_or(false))
+    nets.networks.iter().any(|n| resolve_network(cfg, n).map(|net| net.contains(dst)).unwrap_or(false))
 }
 
 fn service_matches(cfg: &SophosConfig, r: &FirewallRule, proto: Protocol, dport: u16) -> bool {
@@ -206,35 +319,39 @@ mod tests {
     use super::*;
     use crate::sophos::parse_entities;
 
-    const ENTITIES: &str = include_str!("../tests/fixtures/entities-vpn.xml");
+    const VPN: &str = include_str!("../tests/fixtures/entities-vpn.xml");
+    const NAT: &str = include_str!("../tests/fixtures/entities-nat.xml");
 
     #[test]
     fn lan_reaches_dmz_but_vpn_does_not() {
-        let cfg = parse_entities(ENTITIES).unwrap();
+        let cfg = parse_entities(VPN).unwrap();
         let dst: IpAddr = "10.0.10.5".parse().unwrap();
-        let zones = vec!["LAN".to_string(), "VPN".to_string()];
-        let r = explain(&cfg, dst, Protocol::Tcp, 443, &zones);
-
-        assert!(r.diverges(), "LAN and VPN should differ");
-        let lan = r.vantages.iter().find(|v| v.zone == "LAN").unwrap();
-        let vpn = r.vantages.iter().find(|v| v.zone == "VPN").unwrap();
-        assert!(lan.allowed, "LAN should reach the DMZ web server");
-        assert!(!vpn.allowed, "VPN should be blocked");
-        assert_eq!(lan.matched.as_ref().unwrap().name, "LAN-to-DMZ-web");
-        assert!(vpn.matched.is_none()); // default drop
-        // the rule is relevant context for both
-        assert!(r.related.iter().any(|rr| rr.name == "LAN-to-DMZ-web"));
+        let r = explain(&cfg, dst, Protocol::Tcp, 443, &["LAN".into(), "VPN".into()]);
+        assert!(r.diverges());
+        assert!(r.vantages.iter().find(|v| v.zone == "LAN").unwrap().allowed);
+        assert!(!r.vantages.iter().find(|v| v.zone == "VPN").unwrap().allowed);
     }
 
     #[test]
-    fn dnat_is_followed_to_internal_host() {
-        let cfg = parse_entities(include_str!("../tests/fixtures/entities-nat.xml")).unwrap();
+    fn dnat_is_followed_and_routed() {
+        let cfg = parse_entities(NAT).unwrap();
         let public: IpAddr = "203.0.113.10".parse().unwrap();
-        let r = explain(&cfg, public, Protocol::Tcp, 443, &["WAN".to_string()]);
-        let nat = r.nat.as_ref().expect("DNAT should be detected");
-        assert_eq!(nat.translated, "10.0.10.5");
-        assert_eq!(nat.rule, "web-dnat");
-        // After DNAT, WAN is permitted to the internal web server by WAN-to-web.
+        let r = explain(&cfg, public, Protocol::Tcp, 443, &["WAN".into()]);
+        assert_eq!(r.nat.as_ref().unwrap().translated, "10.0.10.5");
+        assert_eq!(r.egress_zone.as_deref(), Some("DMZ"));
+        assert!(!r.no_route);
         assert!(r.vantages[0].allowed);
+    }
+
+    #[test]
+    fn forward_pipeline_delivers_dnat_flow() {
+        let cfg = parse_entities(NAT).unwrap();
+        let src: IpAddr = "203.0.113.50".parse().unwrap(); // WAN side
+        let dst: IpAddr = "203.0.113.10".parse().unwrap(); // public, DNAT'd
+        let f = forward(&cfg, src, dst, Protocol::Tcp, 443);
+        assert_eq!(f.ingress_zone.as_deref(), Some("WAN"));
+        assert_eq!(f.egress_zone.as_deref(), Some("DMZ"));
+        assert!(f.nat.is_some());
+        assert!(f.delivered);
     }
 }

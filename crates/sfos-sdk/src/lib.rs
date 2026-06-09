@@ -18,6 +18,7 @@ pub mod ir;
 pub mod reach;
 pub mod registry;
 pub mod report;
+pub mod route;
 pub mod shadow;
 pub mod sophos;
 pub mod vpn;

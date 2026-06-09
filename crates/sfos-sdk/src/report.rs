@@ -27,6 +27,7 @@ pub struct Summary {
     pub ipsec_connections: usize,
     pub interfaces: usize,
     pub nat_rules: usize,
+    pub static_routes: usize,
 }
 
 #[derive(Serialize)]
@@ -60,6 +61,7 @@ pub fn build(hostname: &str, cfg: &SophosConfig) -> Report {
         ipsec_connections: cfg.ipsec_connections.len(),
         interfaces: cfg.interfaces.len(),
         nat_rules: cfg.nat_rules.len(),
+        static_routes: cfg.static_routes.len(),
     };
 
     let ipsec_tunnels = cfg.ipsec_connections.iter().map(tunnel_info).collect();
@@ -113,9 +115,10 @@ pub fn render_text(r: &Report) -> String {
     let _ = writeln!(o, "\n## Summary");
     let _ = writeln!(
         o,
-        "  zones {}   interfaces {}   rules {} ({} disabled)   hosts {}   groups {}   services {}   nat {}   ipsec {}",
+        "  zones {}   interfaces {}   routes {}   rules {} ({} disabled)   hosts {}   groups {}   services {}   nat {}   ipsec {}",
         s.zones,
         s.interfaces,
+        s.static_routes,
         s.firewall_rules,
         s.disabled_rules,
         s.ip_hosts,

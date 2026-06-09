@@ -5,6 +5,7 @@
   <Zone><Name>DMZ</Name><Type>DMZ</Type></Zone>
   <Interface><Name>PortA</Name><Zone>LAN</Zone><IPAddress>10.0.63.1</IPAddress><Netmask>255.255.255.0</Netmask></Interface>
   <Interface><Name>PortB</Name><Zone>WAN</Zone><IPAddress>203.0.113.1</IPAddress><Netmask>255.255.255.0</Netmask></Interface>
+  <Interface><Name>PortC</Name><Zone>DMZ</Zone><IPAddress>10.0.10.1</IPAddress><Netmask>255.255.255.0</Netmask></Interface>
   <IPHost><Name>PublicWeb</Name><IPFamily>IPv4</IPFamily><HostType>IP</HostType><IPAddress>203.0.113.10</IPAddress></IPHost>
   <IPHost><Name>WebServer</Name><IPFamily>IPv4</IPFamily><HostType>IP</HostType><IPAddress>10.0.10.5</IPAddress></IPHost>
   <Services>

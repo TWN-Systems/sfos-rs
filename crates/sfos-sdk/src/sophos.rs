@@ -49,6 +49,8 @@ pub struct SophosConfig {
     pub interfaces: Vec<Interface>,
     #[serde(rename = "NATRule", default)]
     pub nat_rules: Vec<NatRule>,
+    #[serde(rename = "UnicastRoute", default)]
+    pub static_routes: Vec<StaticRoute>,
     #[serde(rename = "AdminSettings", default)]
     pub admin_settings: Option<AdminSettings>,
     #[serde(rename = "Hotfix", default)]
@@ -123,6 +125,27 @@ pub struct NatRule {
     /// Post-NAT (internal) destination host-object name.
     #[serde(rename = "TranslatedDestination", default)]
     pub translated_destination: Option<String>,
+    /// Pre-NAT source host-object name (for SNAT matching).
+    #[serde(rename = "OriginalSource", default)]
+    pub original_source: Option<String>,
+    /// Post-NAT (masqueraded) source host-object name.
+    #[serde(rename = "TranslatedSource", default)]
+    pub translated_source: Option<String>,
+}
+
+/// A static (unicast) route. Best-effort schema; self-validates against a live export.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StaticRoute {
+    #[serde(rename = "Name", default)]
+    pub name: Option<String>,
+    #[serde(rename = "Destination", default)]
+    pub destination: Option<String>,
+    #[serde(rename = "Netmask", default)]
+    pub netmask: Option<String>,
+    #[serde(rename = "Gateway", default)]
+    pub gateway: Option<String>,
+    #[serde(rename = "Interface", default)]
+    pub interface: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

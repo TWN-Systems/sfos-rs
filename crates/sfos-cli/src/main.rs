@@ -68,6 +68,26 @@ enum Command {
     Report(FileArgs),
     /// Emit version-controllable IaC from the config (normalized JSON, or --ansible)
     Iac(IacArgs),
+    /// Trace one packet end-to-end: ingress -> DNAT -> route -> firewall -> SNAT
+    Path(PathArgs),
+}
+
+#[derive(Args)]
+struct PathArgs {
+    /// Path to Entities.xml
+    file: PathBuf,
+    /// Source IP
+    #[arg(long)]
+    src: String,
+    /// Destination IP, or an IPHost object name to resolve
+    #[arg(long)]
+    to: String,
+    /// Protocol: tcp | udp | icmp
+    #[arg(long, default_value = "tcp")]
+    proto: String,
+    /// Destination port
+    #[arg(long, default_value_t = 443)]
+    dport: u16,
 }
 
 #[derive(Args)]
@@ -252,6 +272,7 @@ fn run(cli: &Cli) -> Result<ExitCode, String> {
         }
         Command::Fetch(a) => cmd_fetch(a, cli.format),
         Command::Explain(a) => cmd_explain(&load(&a.file)?, a, cli.format),
+        Command::Path(a) => cmd_path(&load(&a.file)?, a, cli.format),
         Command::S2s(a) => cmd_s2s(a, cli.format),
         Command::Report(a) => {
             let cfg = load(&a.file)?;
@@ -390,6 +411,50 @@ fn cmd_explain(cfg: &SophosConfig, a: &ExplainArgs, fmt: Format) -> Result<ExitC
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_path(cfg: &SophosConfig, a: &PathArgs, fmt: Format) -> Result<ExitCode, String> {
+    let src: IpAddr = a.src.parse().map_err(|_| format!("invalid --src IP '{}'", a.src))?;
+    let dst: IpAddr = match a.to.parse() {
+        Ok(ip) => ip,
+        Err(_) => sfos_sdk::extract::resolve_network(cfg, &a.to)
+            .map(|n| n.network())
+            .ok_or_else(|| format!("--to '{}' is not an IP and not a resolvable host object", a.to))?,
+    };
+    let proto = match a.proto.to_ascii_lowercase().as_str() {
+        "tcp" => Protocol::Tcp,
+        "udp" => Protocol::Udp,
+        "icmp" => Protocol::Icmp,
+        other => return Err(format!("unknown --proto '{other}' (use tcp|udp|icmp)")),
+    };
+    let f = reach::forward(cfg, src, dst, proto, a.dport);
+    match fmt {
+        Format::Json => {
+            let v = serde_json::json!({
+                "src": a.src, "dst": a.to, "protocol": a.proto, "dst_port": a.dport,
+                "ingress_zone": f.ingress_zone,
+                "egress_zone": f.egress_zone,
+                "egress_interface": f.egress_interface,
+                "nat": f.nat.as_ref().map(|n| serde_json::json!({ "rule": n.rule, "original": n.original, "translated": n.translated })),
+                "snat": f.snat,
+                "firewall": {
+                    "allowed": f.verdict.allowed,
+                    "matched_rule": f.verdict.matched.as_ref().map(|m| m.name.clone()),
+                    "reason": f.verdict.reason,
+                },
+                "delivered": f.delivered,
+                "stages": f.stages,
+            });
+            println!("{}", serde_json::to_string_pretty(&v).unwrap());
+        }
+        Format::Text => {
+            println!("Path {} -> {} {}/{}", a.src, a.to, a.proto, a.dport);
+            for s in &f.stages {
+                println!("  {s}");
+            }
+        }
+    }
+    Ok(if f.delivered { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }
 
 fn rule_json(r: &reach::RuleRef) -> serde_json::Value {
