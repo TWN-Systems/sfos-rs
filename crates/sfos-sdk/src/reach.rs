@@ -178,6 +178,90 @@ pub fn forward(cfg: &SophosConfig, src: IpAddr, dst: IpAddr, proto: Protocol, dp
     ForwardResult { ingress_zone, nat, egress_zone, egress_interface, snat, verdict, delivered, stages }
 }
 
+// ── cross-firewall (multi-hop over a site-to-site tunnel) ────────────────────
+
+#[derive(Debug, Clone)]
+pub struct SitePathResult {
+    pub tunnel_a: Option<String>,
+    pub tunnel_b: Option<String>,
+    pub paired: bool,
+    pub delivered: bool,
+    pub stages: Vec<String>,
+}
+
+/// Trace a flow from a host at site A to a host at site B, through A's firewall,
+/// the IPsec site-to-site tunnel, and B's firewall. IPsec traffic is assumed to
+/// land in the `VPN` zone (the SFOS convention).
+pub fn site_path(
+    a_name: &str,
+    a: &SophosConfig,
+    b_name: &str,
+    b: &SophosConfig,
+    src: IpAddr,
+    dst: IpAddr,
+    proto: Protocol,
+    dport: u16,
+) -> SitePathResult {
+    const VPN: &str = "VPN";
+    let mut stages = Vec::new();
+
+    // Site A: out to the tunnel that covers the destination.
+    let src_zone_a = zone_of_ip(a, src).unwrap_or_else(|| "?".into());
+    let tunnel_a = a
+        .ipsec_connections
+        .iter()
+        .filter(|c| c.is_site_to_site())
+        .find(|c| subnets_contain(a, &c.remote_subnets, dst))
+        .map(|c| c.name.clone());
+
+    let a_allow = match &tunnel_a {
+        None => {
+            stages.push(format!("{a_name}: no site-to-site tunnel covers {dst} — not routed off-site"));
+            false
+        }
+        Some(t) => {
+            let v = first_match(a, Some(&src_zone_a), Some(VPN), dst, proto, dport);
+            stages.push(format!("{a_name}: {src_zone_a} -> VPN (tunnel '{t}'): {}", v.reason));
+            v.allowed
+        }
+    };
+
+    // Tunnel pairing on B (B must have a tunnel back covering this flow).
+    let tunnel_b = b
+        .ipsec_connections
+        .iter()
+        .filter(|c| c.is_site_to_site())
+        .find(|c| subnets_contain(b, &c.remote_subnets, src) && subnets_contain(b, &c.local_subnets, dst))
+        .map(|c| c.name.clone());
+    let paired = tunnel_a.is_some() && tunnel_b.is_some();
+    match (&tunnel_a, &tunnel_b) {
+        (Some(_), Some(t)) => stages.push(format!("tunnel: paired with {b_name} tunnel '{t}'")),
+        (Some(_), None) => {
+            stages.push(format!("tunnel: {b_name} has no matching tunnel for {src} -> {dst} (asymmetric or missing)"))
+        }
+        _ => {}
+    }
+
+    // Site B: in from the tunnel to the destination.
+    let b_allow = if tunnel_b.is_some() {
+        let dst_zone_b = route::build(b).zone_of(dst).unwrap_or_else(|| "?".into());
+        let v = first_match(b, Some(VPN), Some(&dst_zone_b), dst, proto, dport);
+        stages.push(format!("{b_name}: VPN -> {dst_zone_b}: {}", v.reason));
+        v.allowed
+    } else {
+        false
+    };
+
+    let delivered = a_allow && paired && b_allow;
+    stages.push(format!("result: {}", if delivered { "DELIVERED" } else { "BLOCKED" }));
+
+    SitePathResult { tunnel_a, tunnel_b, paired, delivered, stages }
+}
+
+fn subnets_contain(cfg: &SophosConfig, names: &[String], ip: IpAddr) -> bool {
+    names.iter().any(|n| resolve_network(cfg, n).map(|net| net.contains(ip)).unwrap_or(false))
+}
+
 // ── internals ───────────────────────────────────────────────────────────────
 
 fn apply_dnat(cfg: &SophosConfig, dst: IpAddr) -> (IpAddr, Option<NatHop>) {
@@ -341,6 +425,19 @@ mod tests {
         assert_eq!(r.egress_zone.as_deref(), Some("DMZ"));
         assert!(!r.no_route);
         assert!(r.vantages[0].allowed);
+    }
+
+    #[test]
+    fn cross_site_path_delivers_over_tunnel() {
+        let a = parse_entities(include_str!("../tests/fixtures/sp-site-a.xml")).unwrap();
+        let b = parse_entities(include_str!("../tests/fixtures/sp-site-b.xml")).unwrap();
+        let src: IpAddr = "10.1.5.5".parse().unwrap(); // host at site A
+        let dst: IpAddr = "10.2.5.5".parse().unwrap(); // host at site B
+        let r = site_path("site-a", &a, "site-b", &b, src, dst, Protocol::Tcp, 443);
+        assert_eq!(r.tunnel_a.as_deref(), Some("to-b"));
+        assert_eq!(r.tunnel_b.as_deref(), Some("to-a"));
+        assert!(r.paired);
+        assert!(r.delivered, "stages: {:?}", r.stages);
     }
 
     #[test]

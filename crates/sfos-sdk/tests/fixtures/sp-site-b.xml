@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration>
+  <Zone><Name>LAN</Name><Type>LAN</Type></Zone>
+  <Zone><Name>VPN</Name><Type>VPN</Type></Zone>
+  <Interface><Name>PortA</Name><Zone>LAN</Zone><IPAddress>10.2.0.1</IPAddress><Netmask>255.255.0.0</Netmask></Interface>
+  <IPHost><Name>B-LAN</Name><HostType>Network</HostType><IPAddress>10.2.0.0</IPAddress><Subnet>255.255.0.0</Subnet></IPHost>
+  <IPHost><Name>A-LAN</Name><HostType>Network</HostType><IPAddress>10.1.0.0</IPAddress><Subnet>255.255.0.0</Subnet></IPHost>
+  <VPNIPSecConnection>
+    <Name>to-a</Name><ConnectionType>SiteToSite</ConnectionType><Status>Active</Status>
+    <AuthenticationType>PresharedKey</AuthenticationType><IKEVersion>IKEv2</IKEVersion>
+    <LocalSubnet>B-LAN</LocalSubnet><RemoteSubnet>A-LAN</RemoteSubnet>
+  </VPNIPSecConnection>
+  <FirewallRule>
+    <Name>VPN-to-LAN</Name><Status>Enable</Status><PolicyType>Network</PolicyType>
+    <NetworkPolicy>
+      <Action>Accept</Action>
+      <SourceZones><Zone>VPN</Zone></SourceZones>
+      <DestinationZones><Zone>LAN</Zone></DestinationZones>
+      <DestinationNetworks><Network>B-LAN</Network></DestinationNetworks>
+    </NetworkPolicy>
+  </FirewallRule>
+</Configuration>

@@ -70,6 +70,28 @@ enum Command {
     Iac(IacArgs),
     /// Trace one packet end-to-end: ingress -> DNAT -> route -> firewall -> SNAT
     Path(PathArgs),
+    /// Trace a flow across two firewalls and the site-to-site IPsec tunnel
+    SitePath(SitePathArgs),
+}
+
+#[derive(Args)]
+struct SitePathArgs {
+    /// Site A config (where the source host lives)
+    site_a: PathBuf,
+    /// Site B config (where the destination host lives)
+    site_b: PathBuf,
+    /// Source IP at site A
+    #[arg(long)]
+    src: String,
+    /// Destination IP at site B
+    #[arg(long)]
+    to: String,
+    /// Protocol: tcp | udp | icmp
+    #[arg(long, default_value = "tcp")]
+    proto: String,
+    /// Destination port
+    #[arg(long, default_value_t = 443)]
+    dport: u16,
 }
 
 #[derive(Args)]
@@ -273,6 +295,7 @@ fn run(cli: &Cli) -> Result<ExitCode, String> {
         Command::Fetch(a) => cmd_fetch(a, cli.format),
         Command::Explain(a) => cmd_explain(&load(&a.file)?, a, cli.format),
         Command::Path(a) => cmd_path(&load(&a.file)?, a, cli.format),
+        Command::SitePath(a) => cmd_site_path(a, cli.format),
         Command::S2s(a) => cmd_s2s(a, cli.format),
         Command::Report(a) => {
             let cfg = load(&a.file)?;
@@ -455,6 +478,39 @@ fn cmd_path(cfg: &SophosConfig, a: &PathArgs, fmt: Format) -> Result<ExitCode, S
         }
     }
     Ok(if f.delivered { ExitCode::SUCCESS } else { ExitCode::FAILURE })
+}
+
+fn cmd_site_path(a: &SitePathArgs, fmt: Format) -> Result<ExitCode, String> {
+    let ca = load(&a.site_a)?;
+    let cb = load(&a.site_b)?;
+    let an = a.site_a.file_stem().and_then(|s| s.to_str()).unwrap_or("site-a");
+    let bn = a.site_b.file_stem().and_then(|s| s.to_str()).unwrap_or("site-b");
+    let src: IpAddr = a.src.parse().map_err(|_| format!("invalid --src IP '{}'", a.src))?;
+    let dst: IpAddr = a.to.parse().map_err(|_| format!("invalid --to IP '{}'", a.to))?;
+    let proto = match a.proto.to_ascii_lowercase().as_str() {
+        "tcp" => Protocol::Tcp,
+        "udp" => Protocol::Udp,
+        "icmp" => Protocol::Icmp,
+        other => return Err(format!("unknown --proto '{other}' (use tcp|udp|icmp)")),
+    };
+    let r = reach::site_path(an, &ca, bn, &cb, src, dst, proto, a.dport);
+    match fmt {
+        Format::Json => {
+            let v = serde_json::json!({
+                "src": a.src, "dst": a.to, "protocol": a.proto, "dst_port": a.dport,
+                "tunnel_a": r.tunnel_a, "tunnel_b": r.tunnel_b, "paired": r.paired,
+                "delivered": r.delivered, "stages": r.stages,
+            });
+            println!("{}", serde_json::to_string_pretty(&v).unwrap());
+        }
+        Format::Text => {
+            println!("Cross-site path {} -> {} {}/{}", a.src, a.to, a.proto, a.dport);
+            for s in &r.stages {
+                println!("  {s}");
+            }
+        }
+    }
+    Ok(if r.delivered { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }
 
 fn rule_json(r: &reach::RuleRef) -> serde_json::Value {
