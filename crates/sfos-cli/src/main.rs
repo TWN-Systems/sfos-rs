@@ -64,6 +64,10 @@ enum Command {
     Explain(ExplainArgs),
     /// Compare site-to-site IPsec between two or more firewall configs
     S2s(S2sArgs),
+    /// Granular per-subsystem state report (summary, VPN tunnels, findings)
+    Report(FileArgs),
+    /// Emit normalized, version-controllable IaC (declarative JSON) from the config
+    Iac(FileArgs),
 }
 
 #[derive(Args)]
@@ -237,6 +241,22 @@ fn run(cli: &Cli) -> Result<ExitCode, String> {
         Command::Fetch(a) => cmd_fetch(a, cli.format),
         Command::Explain(a) => cmd_explain(&load(&a.file)?, a, cli.format),
         Command::S2s(a) => cmd_s2s(a, cli.format),
+        Command::Report(a) => {
+            let cfg = load(&a.file)?;
+            let name = a.file.file_stem().and_then(|s| s.to_str()).unwrap_or("firewall");
+            let rep = sfos_sdk::report::build(name, &cfg);
+            match cli.format {
+                Format::Json => println!("{}", serde_json::to_string_pretty(&rep).unwrap()),
+                Format::Text => print!("{}", sfos_sdk::report::render_text(&rep)),
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Iac(a) => {
+            let cfg = load(&a.file)?;
+            let norm = sfos_sdk::iac::normalize(&cfg);
+            println!("{}", serde_json::to_string_pretty(&norm).unwrap());
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Entities => {
             cmd_entities(cli.format);
             Ok(ExitCode::SUCCESS)
