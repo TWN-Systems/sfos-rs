@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration>
+  <IPHost><Name>A-LAN</Name><HostType>Network</HostType><IPAddress>10.1.0.0</IPAddress><Subnet>255.255.0.0</Subnet></IPHost>
+  <IPHost><Name>B-LAN</Name><HostType>Network</HostType><IPAddress>10.2.0.0</IPAddress><Subnet>255.255.0.0</Subnet></IPHost>
+  <VPNIPSecConnection>
+    <Name>to-site-b</Name>
+    <ConnectionType>SiteToSite</ConnectionType>
+    <Status>Active</Status>
+    <Policy>DefaultBranchOffice</Policy>
+    <AuthenticationType>PresharedKey</AuthenticationType>
+    <IKEVersion>IKEv2</IKEVersion>
+    <LocalSubnet>A-LAN</LocalSubnet>
+    <RemoteSubnet>B-LAN</RemoteSubnet>
+  </VPNIPSecConnection>
+</Configuration>

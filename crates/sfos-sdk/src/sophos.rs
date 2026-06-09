@@ -43,10 +43,53 @@ pub struct SophosConfig {
     pub ip_host_groups: Vec<IpHostGroup>,
     #[serde(rename = "Services", default)]
     pub services: Vec<ServiceObj>,
+    #[serde(rename = "VPNIPSecConnection", default)]
+    pub ipsec_connections: Vec<IpsecConnection>,
     #[serde(rename = "AdminSettings", default)]
     pub admin_settings: Option<AdminSettings>,
     #[serde(rename = "Hotfix", default)]
     pub hotfix: Option<Hotfix>,
+}
+
+/// IPsec VPN connection. Field tags are best-effort against the SFOS 21.5 schema
+/// (the `VPNIPSecConnection` entity) and self-validate against a live export —
+/// the analysis logic operates on these fields regardless of exact tag spelling.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct IpsecConnection {
+    #[serde(rename = "Name")]
+    pub name: String,
+    /// SiteToSite | RemoteAccess | HostToHost
+    #[serde(rename = "ConnectionType", default)]
+    pub connection_type: Option<String>,
+    /// IPsec profile name (proposals/PFS/lifetimes live in the profile).
+    #[serde(rename = "Policy", default)]
+    pub policy: Option<String>,
+    /// PresharedKey | RSAKey | DigitalCertificate
+    #[serde(rename = "AuthenticationType", default)]
+    pub authentication_type: Option<String>,
+    #[serde(rename = "IKEVersion", default)]
+    pub ike_version: Option<String>,
+    #[serde(rename = "Status", default)]
+    pub status: Option<String>,
+    #[serde(rename = "LocalGateway", default)]
+    pub local_gateway: Option<String>,
+    #[serde(rename = "RemoteHost", default)]
+    pub remote_gateway: Option<String>,
+    /// Local subnet host-object name(s).
+    #[serde(rename = "LocalSubnet", default)]
+    pub local_subnets: Vec<String>,
+    /// Remote subnet host-object name(s).
+    #[serde(rename = "RemoteSubnet", default)]
+    pub remote_subnets: Vec<String>,
+}
+
+impl IpsecConnection {
+    pub fn is_site_to_site(&self) -> bool {
+        self.connection_type
+            .as_deref()
+            .map(|t| t.to_ascii_lowercase().contains("site"))
+            .unwrap_or(false)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

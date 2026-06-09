@@ -74,7 +74,8 @@ fn resolve_addr(cfg: &SophosConfig, names: Option<&[String]>, port_range: Option
     Some(AddrSpec { network, group, port_range })
 }
 
-fn resolve_network(cfg: &SophosConfig, name: &str) -> Option<IpNetwork> {
+/// Resolve a Sophos IPHost object name to a CIDR (when it is an IP or Network host).
+pub fn resolve_network(cfg: &SophosConfig, name: &str) -> Option<IpNetwork> {
     let host = cfg.ip_hosts.iter().find(|h| h.name.eq_ignore_ascii_case(name))?;
     match host.host_type.as_deref() {
         Some("IP") => {
@@ -90,7 +91,8 @@ fn resolve_network(cfg: &SophosConfig, name: &str) -> Option<IpNetwork> {
     }
 }
 
-fn resolve_service(cfg: &SophosConfig, services: &[String]) -> (Option<Protocol>, Option<(u16, u16)>) {
+/// Resolve a service-object name list to (protocol, destination-port-range) from the first entry.
+pub fn resolve_service(cfg: &SophosConfig, services: &[String]) -> (Option<Protocol>, Option<(u16, u16)>) {
     let Some(name) = services.first() else { return (None, None) };
     let Some(svc) = cfg.services.iter().find(|s| s.name.eq_ignore_ascii_case(name)) else {
         return (None, None);

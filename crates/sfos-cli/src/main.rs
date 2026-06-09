@@ -18,7 +18,7 @@ use sfos_sdk::acl::{evaluate, Packet};
 use sfos_sdk::client::Client;
 use sfos_sdk::ir::{FilterAction, Protocol};
 use sfos_sdk::sophos::{parse_entities_file, FirewallRule, IpHost, SophosConfig};
-use sfos_sdk::{extract, shadow};
+use sfos_sdk::{extract, reach, shadow, vpn};
 
 #[derive(Parser)]
 #[command(name = "sfos-rs", version, about = "Sophos SFOS firewall configuration analysis & search")]
@@ -60,6 +60,35 @@ enum Command {
     Get(GetArgs),
     /// Pull the entire configuration from a live firewall (every catalogued entity)
     Export(ExportArgs),
+    /// Explain why a destination is reachable from some zones but not others
+    Explain(ExplainArgs),
+    /// Compare site-to-site IPsec between two or more firewall configs
+    S2s(S2sArgs),
+}
+
+#[derive(Args)]
+struct ExplainArgs {
+    /// Path to Entities.xml
+    file: PathBuf,
+    /// Destination IP, or an IPHost object name to resolve
+    #[arg(long)]
+    to: String,
+    /// Protocol: tcp | udp | icmp
+    #[arg(long, default_value = "tcp")]
+    proto: String,
+    /// Destination port (ignored for icmp)
+    #[arg(long, default_value_t = 443)]
+    dport: u16,
+    /// Source zone to evaluate (repeatable); default: every zone in the config
+    #[arg(long = "from", value_name = "ZONE")]
+    from: Vec<String>,
+}
+
+#[derive(Args)]
+struct S2sArgs {
+    /// Two or more firewall configs; every unique pair is compared
+    #[arg(num_args = 1.., required = true)]
+    files: Vec<PathBuf>,
 }
 
 /// Shared connection flags for live XML API commands.
@@ -206,6 +235,8 @@ fn run(cli: &Cli) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
         Command::Fetch(a) => cmd_fetch(a, cli.format),
+        Command::Explain(a) => cmd_explain(&load(&a.file)?, a, cli.format),
+        Command::S2s(a) => cmd_s2s(a, cli.format),
         Command::Entities => {
             cmd_entities(cli.format);
             Ok(ExitCode::SUCCESS)
@@ -229,6 +260,157 @@ fn cmd_fetch(a: &FetchArgs, fmt: Format) -> Result<ExitCode, String> {
     let cfg = client.export().map_err(|e| e.to_string())?;
     cmd_parse(&cfg, fmt);
     Ok(ExitCode::SUCCESS)
+}
+
+// ── explain (differential reachability) ─────────────────────────────────────
+
+fn cmd_explain(cfg: &SophosConfig, a: &ExplainArgs, fmt: Format) -> Result<ExitCode, String> {
+    let dst: IpAddr = match a.to.parse() {
+        Ok(ip) => ip,
+        Err(_) => sfos_sdk::extract::resolve_network(cfg, &a.to)
+            .map(|n| n.network())
+            .ok_or_else(|| format!("--to '{}' is not an IP and not a resolvable host object", a.to))?,
+    };
+    let proto = match a.proto.to_ascii_lowercase().as_str() {
+        "tcp" => Protocol::Tcp,
+        "udp" => Protocol::Udp,
+        "icmp" => Protocol::Icmp,
+        other => return Err(format!("unknown --proto '{other}' (use tcp|udp|icmp)")),
+    };
+    let zones: Vec<String> = if a.from.is_empty() {
+        cfg.zones.iter().map(|z| z.name.clone()).collect()
+    } else {
+        a.from.clone()
+    };
+    if zones.is_empty() {
+        return Err("no zones to evaluate — config has no zones; pass --from".into());
+    }
+    let result = reach::explain(cfg, dst, proto, a.dport, &zones);
+
+    match fmt {
+        Format::Json => {
+            let v = serde_json::json!({
+                "destination": a.to,
+                "resolved": dst.to_string(),
+                "protocol": a.proto,
+                "dst_port": a.dport,
+                "diverges": result.diverges(),
+                "vantages": result.vantages.iter().map(|v| serde_json::json!({
+                    "zone": v.zone,
+                    "allowed": v.allowed,
+                    "matched_rule": v.matched.as_ref().map(|m| m.name.clone()),
+                    "reason": v.reason,
+                })).collect::<Vec<_>>(),
+                "related_rules": result.related.iter().map(rule_json).collect::<Vec<_>>(),
+            });
+            println!("{}", serde_json::to_string_pretty(&v).unwrap());
+        }
+        Format::Text => {
+            println!("Reachability to {} ({}) {}/{}", a.to, dst, a.proto, a.dport);
+            for v in &result.vantages {
+                println!("  {:<12} {:<6} {}", v.zone, if v.allowed { "ALLOW" } else { "BLOCK" }, v.reason);
+            }
+            if result.diverges() {
+                println!("\nDivergence: zones disagree.");
+                if let Some(allow) = result.vantages.iter().find(|v| v.allowed && v.matched.is_some()) {
+                    let rule = allow.matched.as_ref().unwrap();
+                    let blocked: Vec<&str> =
+                        result.vantages.iter().filter(|v| !v.allowed).map(|v| v.zone.as_str()).collect();
+                    if !blocked.is_empty() {
+                        println!(
+                            "  {} is allowed by rule '{}' (source zones: {}); {} {} not. \
+                             Add the zone(s) to that rule's source zones, or add an equivalent rule.",
+                            allow.zone,
+                            rule.name,
+                            if rule.source_zones.is_empty() { "any".into() } else { rule.source_zones.join(",") },
+                            blocked.join(", "),
+                            if blocked.len() == 1 { "is" } else { "are" },
+                        );
+                    }
+                }
+            } else {
+                println!("\nAll evaluated zones agree.");
+            }
+            if !result.related.is_empty() {
+                println!("\nRelated rules (touch {} {}/{}):", dst, a.proto, a.dport);
+                for r in &result.related {
+                    println!("  {}", rule_line_ref(r));
+                }
+            }
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn rule_json(r: &reach::RuleRef) -> serde_json::Value {
+    serde_json::json!({
+        "name": r.name, "action": r.action, "enabled": r.enabled,
+        "source_zones": r.source_zones, "destination_zones": r.destination_zones,
+        "destination_networks": r.destination_networks, "services": r.services,
+    })
+}
+
+fn rule_line_ref(r: &reach::RuleRef) -> String {
+    let st = if r.enabled { "on " } else { "off" };
+    format!(
+        "[{st}] {:<20} {:<6} src[{}] dst[{}] svc[{}]",
+        r.name,
+        r.action,
+        r.source_zones.join(","),
+        r.destination_networks.join(","),
+        r.services.join(","),
+    )
+}
+
+// ── s2s (site-to-site comparison across firewalls) ──────────────────────────
+
+fn cmd_s2s(a: &S2sArgs, fmt: Format) -> Result<ExitCode, String> {
+    let mut configs: Vec<(String, SophosConfig)> = Vec::new();
+    for f in &a.files {
+        let name = f.file_stem().and_then(|s| s.to_str()).unwrap_or("fw").to_string();
+        configs.push((name, load(f)?));
+    }
+
+    let mut findings: Vec<vpn::VpnFinding> = Vec::new();
+    for (name, cfg) in &configs {
+        for mut f in vpn::posture(cfg) {
+            f.object = format!("{name}/{}", f.object);
+            findings.push(f);
+        }
+    }
+    for i in 0..configs.len() {
+        for j in (i + 1)..configs.len() {
+            let (an, ac) = &configs[i];
+            let (bn, bc) = &configs[j];
+            findings.extend(vpn::compare_site_to_site(an, ac, bn, bc));
+        }
+    }
+
+    let fail = findings.iter().any(|f| f.severity == "HIGH" || f.severity == "CRIT");
+    match fmt {
+        Format::Json => {
+            let arr: Vec<_> = findings
+                .iter()
+                .map(|f| {
+                    serde_json::json!({ "severity": f.severity, "check": f.check, "object": f.object, "message": f.message })
+                })
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&arr).unwrap());
+        }
+        Format::Text => {
+            if findings.is_empty() {
+                println!("No VPN / site-to-site issues found across {} config(s).", configs.len());
+            }
+            for f in &findings {
+                println!("[{}] {} {} — {}", f.severity, f.check, f.object, f.message);
+            }
+            if !findings.is_empty() {
+                let high = findings.iter().filter(|f| f.severity == "HIGH" || f.severity == "CRIT").count();
+                println!("\n{} finding(s), {high} high", findings.len());
+            }
+        }
+    }
+    Ok(if fail { ExitCode::FAILURE } else { ExitCode::SUCCESS })
 }
 
 fn cmd_entities(fmt: Format) {

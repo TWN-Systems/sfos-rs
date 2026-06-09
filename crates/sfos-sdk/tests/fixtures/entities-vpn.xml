@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration>
+  <Zone><Name>LAN</Name><Type>LAN</Type></Zone>
+  <Zone><Name>VPN</Name><Type>VPN</Type></Zone>
+  <Zone><Name>DMZ</Name><Type>DMZ</Type></Zone>
+  <IPHost>
+    <Name>WebServer</Name><IPFamily>IPv4</IPFamily>
+    <HostType>IP</HostType><IPAddress>10.0.10.5</IPAddress>
+  </IPHost>
+  <Services>
+    <Name>HTTPS</Name><Type>TCPorUDP</Type>
+    <ServiceDetails>
+      <ServiceDetail><SourcePort>1:65535</SourcePort><DestinationPort>443</DestinationPort><Protocol>TCP</Protocol></ServiceDetail>
+    </ServiceDetails>
+  </Services>
+  <!-- On-site LAN can reach the DMZ web server; there is no rule for the VPN zone. -->
+  <FirewallRule>
+    <Name>LAN-to-DMZ-web</Name><Status>Enable</Status><PolicyType>Network</PolicyType>
+    <NetworkPolicy>
+      <Action>Accept</Action><LogTraffic>Enable</LogTraffic>
+      <SourceZones><Zone>LAN</Zone></SourceZones>
+      <DestinationZones><Zone>DMZ</Zone></DestinationZones>
+      <DestinationNetworks><Network>WebServer</Network></DestinationNetworks>
+      <Services><Service>HTTPS</Service></Services>
+    </NetworkPolicy>
+  </FirewallRule>
+</Configuration>
