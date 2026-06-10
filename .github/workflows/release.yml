@@ -22,9 +22,13 @@ jobs:
           - os: ubuntu-latest
             bin: sfos-rs
             asset: sfos-rs-linux-x86_64
+            cosign_bin: cosign-linux-amd64
+            cosign_sha: ae1ecd212663f3693ad9edf8b1a183900c9a52d3155ba6e354237f9a0f6463fc
           - os: windows-latest
             bin: sfos-rs.exe
             asset: sfos-rs-windows-x86_64.exe
+            cosign_bin: cosign-windows-amd64.exe
+            cosign_sha: 9d2c026e667bfd979fa7ba1cab8c4b24d2e73f336ec2d57f7fc72c7e73e5b4b6
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -51,14 +55,22 @@ jobs:
         shell: bash
         run: cp "${{ steps.attest.outputs.bundle-path }}" "dist/${{ matrix.asset }}.intoto.jsonl"
 
-      - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      # Pinned, checksum-verified binary instead of sigstore/cosign-installer:
+      # the repo's Actions policy allows GitHub-owned actions only.
+      - name: Install cosign v3.1.1 (pinned, checksum-verified)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "${{ matrix.cosign_bin }}" \
+            "https://github.com/sigstore/cosign/releases/download/v3.1.1/${{ matrix.cosign_bin }}"
+          echo "${{ matrix.cosign_sha }}  ${{ matrix.cosign_bin }}" | sha256sum -c -
+          chmod +x "${{ matrix.cosign_bin }}"
 
       - name: Sign binary (Sigstore keyless)
         shell: bash
         run: |
           set -euo pipefail
-          cosign sign-blob --yes \
+          "./${{ matrix.cosign_bin }}" sign-blob --yes \
             --bundle "dist/${{ matrix.asset }}.cosign.bundle" \
             "dist/${{ matrix.asset }}"
 
