@@ -19,9 +19,12 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
-      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      # Direct install instead of the rustsec/audit-check action: the repo's
+      # Actions policy allows GitHub-owned actions only.
+      - name: Install cargo-audit (pinned)
+        run: cargo install cargo-audit --version 0.22.2 --locked
+      - name: cargo audit
+        run: cargo audit
 
   cargo-deny:
     name: cargo-deny (licenses, bans, sources)

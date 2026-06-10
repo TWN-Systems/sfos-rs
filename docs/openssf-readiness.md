@@ -12,20 +12,18 @@ public · 👤 owner action required · 🛣 roadmap.
 ## Owner checklist (in order)
 
 1. ✅ **Repo is public** under the TWN-Systems org.
-2. 👤 **Branch protection / ruleset on `main`** (Settings → Branches), per
-   Scorecard Branch-Protection tiers: require a PR before merging (≥1
-   approval — with CODEOWNERS in place review routes to @yokoszn), require
-   status checks (`build`, `fmt + clippy`, `cargo-audit`, `cargo-deny`,
-   `opengrep`), block force pushes and deletion, "Do not allow bypassing the
-   above settings" for admins last (Scorecard scores admin-enforcement).
+2. ✅ **Ruleset on `main`** is live: PRs + merge queue, required reviews,
+   required signatures, force-push/deletion blocked.
 3. 👤 **Security & analysis settings** (Settings → Code security):
    - enable **Private vulnerability reporting** (the SECURITY.md and issue
      templates already point reporters there)
    - enable **Secret scanning** + **push protection** (free on public repos)
    - confirm Dependabot alerts + security updates are on
-4. 🔓 **CodeQL and Scorecard activate on their own** — both workflows
-   already exist and are merely `if:`-gated on the repo being public
-   (`codeql.yml`, `scorecard.yml` with `publish_results: true`).
+4. 👤 **Actions allowlist**: the repo's Actions policy permits GitHub-owned
+   actions only. Add `ossf/scorecard-action@*` (Settings → Actions →
+   General → "Allow select actions") so `scorecard.yml` can run and publish
+   results — it is the only third-party action still required; everything
+   else uses GitHub-owned actions or checksum-verified binaries.
 5. 👤 **Register on bestpractices.dev**: sign in with GitHub, add
    `https://github.com/TWN-Systems/sfos-rs`, fill the form using the
    [evidence map below](#best-practices-badge-passing--evidence-map). Add

@@ -1,48 +1,54 @@
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
-
 name: trivy
+
+# Filesystem scan: dependency vulns (Cargo.lock), secrets, and IaC/workflow
+# misconfigurations. This repo ships binaries, not container images — there is
+# no Dockerfile — so the scan targets the repository tree. The trivy binary is
+# downloaded at a pinned version and checksum-verified (the repo's Actions
+# policy allows GitHub-owned actions only, so aquasecurity/trivy-action is not
+# usable here).
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
   pull_request:
-    # The branches below must be a subset of the branches above
-    branches: [ "main" ]
   schedule:
-    - cron: '33 18 * * 6'
+    - cron: "33 18 * * 6" # weekly, Saturday
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    permissions:
-      contents: read # for actions/checkout to fetch code
-      security-events: write # for github/codeql-action/upload-sarif to upload SARIF results
-      actions: read # only required for a private repository by github/codeql-action/upload-sarif to get the Action run status
-    name: Build
+  fs-scan:
+    name: trivy fs (vulns, secrets, misconfig)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # upload SARIF to code scanning
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
 
-      - name: Build an image from Dockerfile
+      - name: Install trivy (pinned, checksum-verified)
         run: |
-          docker build -t docker.io/my-organization/my-app:${{ github.sha }} .
+          set -euo pipefail
+          ver=0.71.0
+          sha=30a3d22b23f88c233f1658f562fb477cae3b3e8b4761109d515b7698daf85814
+          curl -fsSL -o trivy.tgz "https://github.com/aquasecurity/trivy/releases/download/v${ver}/trivy_${ver}_Linux-64bit.tar.gz"
+          echo "${sha}  trivy.tgz" | sha256sum -c -
+          tar -xzf trivy.tgz trivy
 
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@7b7aa264d83dc58691451798b4d117d53d21edfe
-        with:
-          image-ref: 'docker.io/my-organization/my-app:${{ github.sha }}'
-          format: 'template'
-          template: '@/contrib/sarif.tpl'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
+      - name: Scan repository filesystem
+        run: |
+          ./trivy fs \
+            --scanners vuln,secret,misconfig \
+            --severity CRITICAL,HIGH,MEDIUM \
+            --format sarif \
+            --output trivy-results.sarif \
+            .
 
-      - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+      - name: Upload SARIF to code scanning
+        uses: github/codeql-action/upload-sarif@c35d1b164463ee62a100735382aaaa525c5d3496 # codeql-bundle-v2.25.6
         with:
-          sarif_file: 'trivy-results.sarif'
+          sarif_file: trivy-results.sarif
