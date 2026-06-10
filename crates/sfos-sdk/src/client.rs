@@ -267,7 +267,8 @@ mod tests {
     use super::*;
 
     fn client() -> Client {
-        Client::new("fw.example", 4444, "admin", "p@ss<&", false).unwrap()
+        let password = std::env::var("SFOS_TEST_PASSWORD").unwrap_or_else(|_| "p@ss<&".to_string());
+        Client::new("fw.example", 4444, "admin", &password, false).unwrap()
     }
 
     #[test]
