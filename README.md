@@ -1,6 +1,7 @@
 # sfos-rs
 
-A standalone **Rust SDK + CLI for Sophos SFOS firewalls** — "Batfish for Sophos".
+A standalone **Rust SDK + CLI for Sophos SFOS firewalls**
+
 Parse an `Entities.xml` backup offline, or authenticate to a live firewall over the
 XML API, pull the entire configuration, and produce reports.
 
