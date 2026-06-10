@@ -21,6 +21,15 @@ Workspace:
   - `acl` — packet-forwarding (reachability) evaluation; `shadow` — dead-rule detection
 - **`crates/sfos-cli`** — the `sfos-rs` binary
 
+## Documentation
+
+Full documentation lives in [`docs/`](docs/README.md):
+[CLI reference](docs/cli-reference.md) (every command, flag, and exit code) ·
+[SDK guide](docs/sdk-guide.md) ·
+[error reference](docs/errors.md) ·
+[safety / destructive operations](docs/safety.md) ·
+[playbooks](docs/playbooks.md) (multi-site VPN audit, BCDR export, safe change application, …).
+
 ## Build
 
 ```bash
@@ -45,6 +54,17 @@ sfos-rs verify Entities.xml
 sfos-rs graph  Entities.xml [--mermaid]
 ```
 
+Analysis & reporting:
+
+```bash
+sfos-rs explain   Entities.xml --to WebServer --dport 443        # differential reachability: which zones can, which can't, and why
+sfos-rs path      Entities.xml --src 192.0.2.50 --to 10.0.10.5   # ingress -> DNAT -> route -> firewall -> SNAT
+sfos-rs site-path siteA.xml siteB.xml --src 10.1.0.20 --to 10.2.0.10   # cross-firewall, over the IPsec tunnel
+sfos-rs s2s       siteA.xml siteB.xml [siteC.xml ...]            # site-to-site IPsec symmetry audit
+sfos-rs report    Entities.xml                                   # per-subsystem state report
+sfos-rs iac       Entities.xml [--ansible]                       # normalized declarative JSON / Ansible playbook
+```
+
 Live (against a firewall's XML API — set `SFOS_PASSWORD` or pass `--password`):
 
 ```bash
@@ -52,10 +72,12 @@ sfos-rs entities                                            # list the entity ca
 sfos-rs fetch  --host fw --user admin --insecure            # typed summary
 sfos-rs get    --host fw --user admin --insecure FirewallRule   # one entity (JSON or --raw)
 sfos-rs export --host fw --user admin --insecure --out-dir ./dump   # pull the whole config
+sfos-rs apply  desired.xml --host fw --user admin --insecure        # dry-run plan; add --commit to write
 ```
 
 Add `--format json` for machine-readable output. `--insecure` skips TLS verification
-(SFOS ships a self-signed certificate by default).
+(SFOS ships a self-signed certificate by default). `apply --commit` is the only
+operation that writes to a firewall — see [docs/safety.md](docs/safety.md).
 
 ## Getting an Entities.xml
 
@@ -65,8 +87,11 @@ and use the `Entities.xml` inside — or just use `fetch`/`export` against the l
 ## Status
 
 The XML API surface is driven by a uniform engine over an entity registry, so coverage
-grows by extending the catalogue. The live HTTP path is exercised against real firewalls;
-the request/response logic is unit-tested offline. Ansible/PowerShell ports are out of scope.
+grows by extending the catalogue. The request/response logic is unit-tested offline
+against fixtures derived from Sophos's own configuration-template tooling; **the live
+HTTP path has not yet been validated against a real firewall** (see
+[docs/README.md](docs/README.md#validation-status)). Ansible/PowerShell ports are out
+of scope.
 
 ## License
 
