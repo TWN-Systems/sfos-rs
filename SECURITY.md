@@ -1,5 +1,7 @@
 # Security Policy
 
+[![OpenSSF Baseline](https://www.bestpractices.dev/projects/13145/baseline)](https://www.bestpractices.dev/projects/13145)
+
 ## Reporting a vulnerability
 
 Please report security issues **privately** — use GitHub's *Security → Advisories →
