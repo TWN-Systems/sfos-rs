@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please report security issues **privately** — use GitHub's *Security → Advisories →
-Report a vulnerability* on this repository, or email <dev@clayatownsend.com>. Do not
+Report a vulnerability* on this repository, or email <security@twn.systems>. Do not
 open public issues for vulnerabilities. We aim to acknowledge within 3 business days
 (committed maximum for an initial response: 14 days).
 
