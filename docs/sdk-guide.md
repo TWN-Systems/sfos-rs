@@ -6,7 +6,7 @@ changes programmatically.
 
 ```toml
 [dependencies]
-sfos-sdk = { git = "https://github.com/yokoszn/sfos-rs", package = "sfos-sdk" }
+sfos-sdk = { git = "https://github.com/TWN-Systems/sfos-rs", package = "sfos-sdk", rev = "<commit>" }
 ```
 
 Module map (`sfos_sdk::…`):
