@@ -1,0 +1,10 @@
+# Keep the build context to source only — the build compiles from scratch inside
+# the builder stage, so host build outputs and VCS/CI metadata are irrelevant.
+target/
+.git/
+.github/
+docs/
+dist/
+*.deb
+*.md
+!Cargo.toml
