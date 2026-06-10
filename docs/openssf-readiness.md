@@ -4,18 +4,14 @@ Status mapping of sfos-rs against three OpenSSF frameworks, with the exact
 remaining actions. Legend: ✅ met · 🔓 met automatically once the repo is
 public · 👤 owner action required · 🛣 roadmap.
 
-> **The one blocking item for all three frameworks: the repository is
-> private.** The Best Practices badge requires a publicly readable repo
-> (`repo_public` MUST / OSPS-QA-01.01), and both Scorecard and the badge app
-> evaluate public repos. Everything below is staged so that flipping the
-> repo public + a short settings checklist completes the preparation.
+> The repository is **public** (github.com/TWN-Systems/sfos-rs) — the
+> hard prerequisite for all three frameworks (`repo_public` MUST /
+> OSPS-QA-01.01) is met, and the CodeQL/Scorecard workflows are active.
+> What remains is the settings checklist below.
 
 ## Owner checklist (in order)
 
-1. 👤 **Make the repo public** (Settings → General → Danger Zone). This is a
-   publish action — everything in history becomes visible; the tree has been
-   secret-scanned and fixtures are synthetic, but re-check anything you know
-   about that isn't in the tree (issues, drafts).
+1. ✅ **Repo is public** under the TWN-Systems org.
 2. 👤 **Branch protection / ruleset on `main`** (Settings → Branches), per
    Scorecard Branch-Protection tiers: require a PR before merging (≥1
    approval — with CODEOWNERS in place review routes to @yokoszn), require
@@ -31,14 +27,14 @@ public · 👤 owner action required · 🛣 roadmap.
    already exist and are merely `if:`-gated on the repo being public
    (`codeql.yml`, `scorecard.yml` with `publish_results: true`).
 5. 👤 **Register on bestpractices.dev**: sign in with GitHub, add
-   `https://github.com/yokoszn/sfos-rs`, fill the form using the
+   `https://github.com/TWN-Systems/sfos-rs`, fill the form using the
    [evidence map below](#best-practices-badge-passing--evidence-map). Add
    the issued badge ID to README.md.
 6. 👤 **Add badges to README.md** once live:
 
    ```markdown
    [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/<ID>/badge)](https://www.bestpractices.dev/projects/<ID>)
-   [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/yokoszn/sfos-rs/badge)](https://scorecard.dev/viewer/?uri=github.com/yokoszn/sfos-rs)
+   [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/TWN-Systems/sfos-rs/badge)](https://scorecard.dev/viewer/?uri=github.com/TWN-Systems/sfos-rs)
    ```
 
 ## Best Practices badge (passing) — evidence map
@@ -54,15 +50,15 @@ legitimate on the form and noted explicitly.
 | documentation_basics | ✅ | `docs/` set (cli-reference, sdk-guide, playbooks) |
 | documentation_interface | ✅ | docs/cli-reference.md + docs/architecture.md#external-interfaces |
 | sites_https | ✅ | GitHub-hosted everything |
-| discussion | 🔓 | GitHub Issues (searchable, URL-addressable) — public with the repo |
+| discussion | ✅ | GitHub Issues (searchable, URL-addressable) |
 | english | ✅ | all docs English |
 | maintained | ✅ | active commits; MAINTAINERS.md |
-| repo_public, repo_track, repo_interim, repo_distributed | 👤/✅ | git on GitHub; **needs the repo public** |
+| repo_public, repo_track, repo_interim, repo_distributed | ✅ | public git repo on GitHub |
 | version_unique, version_semver, version_tags | ✅ | SemVer workspace version, `v*` tags |
 | release_notes | ✅ | GitHub releases (`--generate-notes`) + CHANGELOG.md |
 | release_notes_vulns | ✅ | CHANGELOG policy: Security entries reference advisories |
 | report_process, report_tracker | ✅ | `.github/ISSUE_TEMPLATE/` bug template |
-| report_responses, report_archive | 🔓 | Issues archive is public with the repo |
+| report_responses, report_archive | ✅ | public Issues archive |
 | vulnerability_report_process, _private | ✅ | SECURITY.md (private advisory + email) |
 | vulnerability_report_response | ✅ | SECURITY.md: acknowledge ≤ 3 business days (≪ 14-day max) |
 | build, build_common_tools, build_floss_tools | ✅ | cargo; docs/building.md |
@@ -103,12 +99,12 @@ Level 1 + 2 controls (level 3 noted where already satisfied).
 | OSPS-DO-04/05 (support scope / EOL) — L3 | ✅ | SECURITY.md "Supported versions" |
 | OSPS-DO-06 (dependency selection/tracking) | ✅ | docs/building.md#dependency-footprint + docs/supply-chain.md |
 | OSPS-GV-01 (members + roles) | ✅ | MAINTAINERS.md + docs/maintaining.md |
-| OSPS-GV-02 (public discussion mechanism) | 🔓 | GitHub Issues, public with the repo |
+| OSPS-GV-02 (public discussion mechanism) | ✅ | GitHub Issues |
 | OSPS-GV-03 (contribution process + guide) | ✅ | CONTRIBUTING.md |
 | OSPS-GV-04 (review before escalated perms) — L3 | ✅ | maintainer onboarding ladder in maintaining.md |
 | OSPS-LE-01 (contributor authorization assertion) | ✅ | DCO sign-off required (CONTRIBUTING.md) |
 | OSPS-LE-02/03 (approved license, in repo, per release) | ✅ | MIT `LICENSE` at root, included in source archives |
-| OSPS-QA-01 (public repo, change history) | 👤 | needs the repo public; git history complete |
+| OSPS-QA-01 (public repo, change history) | ✅ | public repo; full git history |
 | OSPS-QA-02 (dependency list; SBOM for releases — L3) | ✅ | `Cargo.lock` in repo; SPDX SBOM attached to releases |
 | OSPS-QA-03 (status checks before merge) | 👤 | required-checks step in the owner checklist |
 | OSPS-QA-04 (subprojects documented) | ✅ | single repo, two crates — README workspace section |

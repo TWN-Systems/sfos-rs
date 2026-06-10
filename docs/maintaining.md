@@ -80,9 +80,9 @@ git log <last-tag>..HEAD --oneline     # know what you're shipping
 
    ```bash
    sha256sum -c sfos-rs-linux-x86_64.sha256
-   gh attestation verify sfos-rs-linux-x86_64 --repo yokoszn/sfos-rs
+   gh attestation verify sfos-rs-linux-x86_64 --repo TWN-Systems/sfos-rs
    cosign verify-blob --bundle sfos-rs-linux-x86_64.cosign.bundle \
-     --certificate-identity-regexp 'https://github.com/yokoszn/sfos-rs/.github/workflows/release.yml@.*' \
+     --certificate-identity-regexp 'https://github.com/TWN-Systems/sfos-rs/.github/workflows/release.yml@.*' \
      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
      sfos-rs-linux-x86_64
    ```

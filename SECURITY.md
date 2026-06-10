@@ -48,12 +48,12 @@ written reachability justification in `deny.toml`
 sha256sum -c sfos-rs-linux-x86_64.sha256
 
 # 2. build provenance (SLSA)
-gh attestation verify sfos-rs-linux-x86_64 --repo yokoszn/sfos-rs
+gh attestation verify sfos-rs-linux-x86_64 --repo TWN-Systems/sfos-rs
 
 # 3. Sigstore signature
 cosign verify-blob \
   --bundle sfos-rs-linux-x86_64.cosign.bundle \
-  --certificate-identity-regexp 'https://github.com/yokoszn/sfos-rs/.github/workflows/release.yml@.*' \
+  --certificate-identity-regexp 'https://github.com/TWN-Systems/sfos-rs/.github/workflows/release.yml@.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   sfos-rs-linux-x86_64
 ```

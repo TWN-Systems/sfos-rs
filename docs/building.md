@@ -46,7 +46,7 @@ build environments).
 
 ```toml
 [dependencies]
-sfos-sdk = { git = "https://github.com/yokoszn/sfos-rs", package = "sfos-sdk", rev = "<commit>" }
+sfos-sdk = { git = "https://github.com/TWN-Systems/sfos-rs", package = "sfos-sdk", rev = "<commit>" }
 ```
 
 Pin a `rev` (not a branch) so your build is reproducible and immune to
