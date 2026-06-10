@@ -7,11 +7,11 @@ hardening conventions (see [below](#hardening-conventions)).
 
 | Workflow | Triggers | What it does | Red means |
 |---|---|---|---|
-| `build.yml` | push to `main`, every PR, manual | `cargo build --release --locked` + `cargo test --release --locked` on Linux **and** Windows; uploads the binaries as artifacts | the code doesn't compile or tests fail on at least one platform |
+| `build.yml` | push to `main`, every PR, manual | **lint** job (`cargo fmt --check`, `cargo clippy -D warnings`) + `cargo build --release --locked` + `cargo test --release --locked` on Linux **and** Windows; uploads the binaries as artifacts | the code doesn't compile, tests fail on at least one platform, or fmt/clippy is dirty |
 | `security.yml` | push to `main`, every PR, weekly (Mon 06:37 UTC), manual | three independent jobs: `cargo-audit` (RUSTSEC advisories), `cargo-deny` (advisories + licenses + bans + sources policy from `deny.toml`), `opengrep` SAST | a dependency has a known vulnerability / policy violation, or SAST flagged the diff |
 | `codeql.yml` | push to `main`, every PR, weekly (Tue 04:23 UTC), manual | CodeQL analysis (Rust) | a code-scanning finding. *Skipped while the repo is private* (needs public repo or GHAS) |
 | `scorecard.yml` | push to `main`, weekly (Mon 05:19 UTC), branch-protection changes, manual | OpenSSF Scorecard posture score | repo hygiene regressed. *Skipped while private* |
-| `release.yml` | tag `v*` | build → checksum → SLSA provenance attestation → Sigstore keyless signing → GitHub release | the release did not publish; never ship artifacts from a red run |
+| `release.yml` | tag `v*` | build → checksum → SLSA provenance attestation → Sigstore keyless signing → SPDX SBOM → GitHub release | the release did not publish; never ship artifacts from a red run |
 
 Dependabot (`.github/dependabot.yml`): weekly grouped update PRs for **cargo**
 (all crates in one PR) and **github-actions** (all action pins in one PR),
@@ -19,8 +19,8 @@ max 10 open PRs. These PRs land in the same CI gauntlet as any other change.
 
 ## What runs when
 
-- **Every PR:** build+test (both OSes), cargo-audit, cargo-deny, opengrep,
-  CodeQL (when public). This is the merge gate.
+- **Every PR:** lint (fmt+clippy), build+test (both OSes), cargo-audit,
+  cargo-deny, opengrep, CodeQL (when public). This is the merge gate.
 - **Push to `main`:** the same set re-runs against the merged tree.
 - **Weekly:** security and CodeQL re-run on a schedule so *new* advisories
   against *unchanged* code still surface; Scorecard re-scores the repo.
@@ -37,11 +37,15 @@ max 10 open PRs. These PRs land in the same CI gauntlet as any other change.
      `<asset>.sha256` checksum
    - **attest build provenance** (`actions/attest-build-provenance`) — a
      SLSA attestation binding the artifact digest to this repo, workflow,
-     and commit, signed via GitHub OIDC
+     and commit, signed via GitHub OIDC; the bundle is also staged as a
+     release asset (`<asset>.intoto.jsonl`)
    - **sign** with `cosign sign-blob --yes --bundle <asset>.cosign.bundle`
      (Sigstore keyless: the signing identity is the workflow itself, recorded
      in the public Rekor transparency log)
-2. **publish:** downloads all staged artifacts and creates the GitHub
+2. **sbom:** generates an SPDX SBOM for the dependency tree
+   (`cargo sbom`, version-pinned install) named
+   `sfos-rs-<tag>.spdx.json`.
+3. **publish:** downloads all staged artifacts and creates the GitHub
    release with `gh release create --generate-notes`.
 
 Per-job permissions: the build job has `contents: read` plus
@@ -69,9 +73,10 @@ against this list:
    inherit a writable repo token.
 4. **`--locked` on every cargo invocation** — CI builds exactly what
    `Cargo.lock` pins.
-5. **Third-party binaries are checksum-verified** — opengrep is downloaded
-   at a pinned version and verified against a hardcoded SHA-256 before it
-   runs. Apply the same pattern to any future tool download.
+5. **Third-party tools are pinned** — opengrep is downloaded at a pinned
+   version and verified against a hardcoded SHA-256 before it runs;
+   `cargo install`s in workflows pin an exact `--version` plus `--locked`.
+   Apply the same pattern to any future tool.
 6. **Forked-PR safety** — no workflow uses `pull_request_target` or exposes
    secrets to PR builds.
 

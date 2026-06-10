@@ -100,7 +100,14 @@ CI runs build+test on Linux and Windows, `cargo-audit`, `cargo-deny`, and
 opengrep SAST on every PR ([docs/ci.md](docs/ci.md)). A red check is a
 blocker — don't ask for review with failing CI.
 
-## License
+## License & sign-off (DCO)
 
 MIT. By submitting a contribution you agree to license it under the
 project's [LICENSE](LICENSE).
+
+Commits must carry a [Developer Certificate of Origin](https://developercertificate.org/)
+sign-off asserting you have the right to contribute the code:
+
+```bash
+git commit -s        # adds: Signed-off-by: Your Name <you@example.com>
+```

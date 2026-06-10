@@ -20,8 +20,10 @@ Developing and operating the project:
 
 | Document | What it covers |
 |---|---|
+| [architecture.md](architecture.md) | Design doc: actors, data flows, trust boundaries, threat model |
 | [building.md](building.md) | Building from source, `--locked`, tests, dependency footprint |
 | [ci.md](ci.md) | Every CI/CD workflow, the release pipeline, hardening conventions |
+| [openssf-readiness.md](openssf-readiness.md) | Best Practices badge / OSPS Baseline / Scorecard evidence maps + owner checklist |
 | [maintaining.md](maintaining.md) | Maintainer guide: dependencies, advisories, releases, account security |
 | [supply-chain.md](supply-chain.md) | Threat model, controls, crate/maintainer-compromise scenarios |
 | [incident-response.md](incident-response.md) | What to do when something happens (six scenarios) |
