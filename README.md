@@ -1,7 +1,7 @@
 # sfos-rs
 
 [![OpenSSF Baseline](https://www.bestpractices.dev/projects/13145/baseline)](https://www.bestpractices.dev/projects/13145)
-
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13145/badge)](https://www.bestpractices.dev/projects/13145)
 A standalone **Rust SDK + CLI for Sophos SFOS firewalls**
 
 Parse an `Entities.xml` backup offline, or authenticate to a live firewall over the
