@@ -41,16 +41,27 @@ pub fn to_json(xml: &str) -> String {
                 stack.last_mut().unwrap().children.push((name, node));
             }
             Ok(Event::Text(t)) => {
-                if let Ok(txt) = t.unescape() {
-                    let s = txt.trim();
-                    if !s.is_empty() {
+                // quick-xml ≥0.38: text arrives already entity-free (refs are
+                // separate GeneralRef events), so only decoding remains. Runs
+                // are accumulated raw and trimmed once per frame, so text
+                // split around a reference keeps its inner whitespace.
+                if let Ok(txt) = t.decode() {
+                    stack.last_mut().unwrap().text.push_str(&txt);
+                }
+            }
+            Ok(Event::GeneralRef(r)) => {
+                // &#NN; / &#xHH; and the predefined XML entities.
+                if let Ok(Some(ch)) = r.resolve_char_ref() {
+                    stack.last_mut().unwrap().text.push(ch);
+                } else if let Ok(name) = r.decode() {
+                    if let Some(s) = quick_xml::escape::resolve_predefined_entity(&name) {
                         stack.last_mut().unwrap().text.push_str(s);
                     }
                 }
             }
             Ok(Event::CData(t)) => {
                 let s = String::from_utf8_lossy(t.as_ref()).into_owned();
-                stack.last_mut().unwrap().text.push_str(s.trim());
+                stack.last_mut().unwrap().text.push_str(&s);
             }
             Ok(Event::End(_)) if stack.len() > 1 => {
                 let f = stack.pop().unwrap();
@@ -74,14 +85,15 @@ pub fn to_json(xml: &str) -> String {
 fn push_attrs(e: &quick_xml::events::BytesStart, f: &mut Frame) {
     for a in e.attributes().flatten() {
         let k = format!("@{}", name_of(a.key.as_ref()));
-        let v = a.unescape_value().map(|c| c.into_owned()).unwrap_or_default();
+        let v = a.normalized_value(quick_xml::XmlVersion::Implicit1_0).map(|c| c.into_owned()).unwrap_or_default();
         f.children.push((k, J::S(v)));
     }
 }
 
 fn frame_to_json(f: Frame) -> J {
+    let text = f.text.trim().to_string();
     if f.children.is_empty() {
-        return J::S(f.text);
+        return J::S(text);
     }
     let mut order: Vec<String> = Vec::new();
     let mut groups: Vec<(String, Vec<J>)> = Vec::new();
@@ -102,8 +114,8 @@ fn frame_to_json(f: Frame) -> J {
             obj.push((k, J::A(vals)));
         }
     }
-    if !f.text.is_empty() {
-        obj.push(("#text".to_string(), J::S(f.text)));
+    if !text.is_empty() {
+        obj.push(("#text".to_string(), J::S(text)));
     }
     J::O(obj)
 }
@@ -173,6 +185,14 @@ mod tests {
     fn attributes_and_mixed_text() {
         let json = to_json(r#"<C k="1">z</C>"#);
         assert_eq!(json, r##"{"C":{"@k":"1","#text":"z"}}"##);
+    }
+
+    #[test]
+    fn entity_and_char_refs_resolve_in_text() {
+        // Refs arrive as separate GeneralRef events in quick-xml ≥0.38; the
+        // surrounding whitespace must survive the reassembly.
+        let json = to_json("<A><B>a &amp; b &#x21;</B></A>");
+        assert_eq!(json, r#"{"A":{"B":"a & b !"}}"#);
     }
 
     #[test]
