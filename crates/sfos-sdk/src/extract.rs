@@ -140,8 +140,7 @@ pub fn zone_of_ip(cfg: &SophosConfig, ip: std::net::IpAddr) -> Option<String> {
         let (Some(addr), Some(mask)) = (i.ip_address.as_deref(), i.netmask.as_deref()) else {
             continue;
         };
-        let (Ok(a), Ok(m)) = (addr.parse::<std::net::Ipv4Addr>(), mask.parse::<std::net::Ipv4Addr>())
-        else {
+        let (Ok(a), Ok(m)) = (addr.parse::<std::net::Ipv4Addr>(), mask.parse::<std::net::Ipv4Addr>()) else {
             continue;
         };
         if let Ok(net) = Ipv4Network::with_netmask(a, m) {

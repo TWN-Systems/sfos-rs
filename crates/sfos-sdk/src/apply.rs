@@ -65,18 +65,12 @@ pub fn plan(desired: &SophosConfig, live: &SophosConfig, prune: bool) -> Vec<Pla
 fn diff<T: SophosEntity>(desired: &[T], live: &[T], prune: bool, out: &mut Vec<PlanItem>) {
     for d in desired {
         match live.iter().find(|l| l.name().eq_ignore_ascii_case(d.name())) {
-            None => out.push(PlanItem {
-                action: Action::Add,
-                tag: T::TAG,
-                name: d.name().to_string(),
-                xml: d.to_xml(),
-            }),
-            Some(l) if l.to_xml() != d.to_xml() => out.push(PlanItem {
-                action: Action::Update,
-                tag: T::TAG,
-                name: d.name().to_string(),
-                xml: d.to_xml(),
-            }),
+            None => {
+                out.push(PlanItem { action: Action::Add, tag: T::TAG, name: d.name().to_string(), xml: d.to_xml() })
+            }
+            Some(l) if l.to_xml() != d.to_xml() => {
+                out.push(PlanItem { action: Action::Update, tag: T::TAG, name: d.name().to_string(), xml: d.to_xml() })
+            }
             Some(_) => {}
         }
     }

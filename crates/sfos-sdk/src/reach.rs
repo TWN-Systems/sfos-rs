@@ -192,6 +192,7 @@ pub struct SitePathResult {
 /// Trace a flow from a host at site A to a host at site B, through A's firewall,
 /// the IPsec site-to-site tunnel, and B's firewall. IPsec traffic is assumed to
 /// land in the `VPN` zone (the SFOS convention).
+#[allow(clippy::too_many_arguments)] // two sites × (name, config) + the 4-tuple flow is the natural signature
 pub fn site_path(
     a_name: &str,
     a: &SophosConfig,
@@ -335,7 +336,12 @@ fn first_match(
             return VantageVerdict { zone: label, allowed, matched: Some(rr), reason };
         }
     }
-    VantageVerdict { zone: label, allowed: false, matched: None, reason: "no matching rule — implicit default drop".into() }
+    VantageVerdict {
+        zone: label,
+        allowed: false,
+        matched: None,
+        reason: "no matching rule — implicit default drop".into(),
+    }
 }
 
 fn fmt(z: &[String]) -> String {

@@ -42,8 +42,7 @@ impl FilterCriteria {
 }
 
 /// Entity types this SDK can export from a live firewall, in dependency order.
-pub const EXPORTABLE_ENTITIES: &[&str] =
-    &["Zone", "IPHost", "IPHostGroup", "Services", "FirewallRule"];
+pub const EXPORTABLE_ENTITIES: &[&str] = &["Zone", "IPHost", "IPHostGroup", "Services", "FirewallRule"];
 
 #[derive(Debug, thiserror::Error)]
 pub enum SdkError {
@@ -70,13 +69,7 @@ pub struct Client {
 impl Client {
     /// Build a client. `verify_certs = false` skips TLS validation (needed for
     /// the default self-signed SFOS certificate).
-    pub fn new(
-        host: &str,
-        port: u16,
-        username: &str,
-        password: &str,
-        verify_certs: bool,
-    ) -> Result<Self, SdkError> {
+    pub fn new(host: &str, port: u16, username: &str, password: &str, verify_certs: bool) -> Result<Self, SdkError> {
         let http = reqwest::blocking::Client::builder()
             .danger_accept_invalid_certs(!verify_certs)
             .timeout(Duration::from_secs(30))
@@ -103,12 +96,7 @@ impl Client {
     }
 
     fn set_request_xml(&self, entity_xml: &str, operation: &str) -> String {
-        format!(
-            "<Request>{}<Set operation=\"{}\">{}</Set></Request>",
-            self.login_block(),
-            operation,
-            entity_xml
-        )
+        format!("<Request>{}<Set operation=\"{}\">{}</Set></Request>", self.login_block(), operation, entity_xml)
     }
 
     fn remove_request_xml(&self, entity: &str, name: &str) -> String {
@@ -158,10 +146,7 @@ impl Client {
     /// entity's result is captured independently so one failure (or an entity
     /// that doesn't apply to this firewall) does not abort the whole export.
     pub fn export_all(&self) -> Vec<(&'static str, Result<String, SdkError>)> {
-        crate::registry::ENTITIES
-            .iter()
-            .map(|ent| (ent.tag, self.get_raw(ent.tag)))
-            .collect()
+        crate::registry::ENTITIES.iter().map(|ent| (ent.tag, self.get_raw(ent.tag))).collect()
     }
 
     /// Export the modelled entity types from a live firewall into one config —
@@ -250,10 +235,7 @@ fn merge(into: &mut SophosConfig, part: SophosConfig) {
 }
 
 fn xml_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
 /// SFOS reports bad credentials with an "Authentication Failure" login status.
@@ -311,9 +293,9 @@ mod tests {
     fn filter_request_xml_is_well_formed() {
         let c = client();
         let xml = c.get_filter_request_xml("IPHost", "Name", FilterCriteria::Like, "web");
-        assert!(xml.contains(
-            "<Get><IPHost><Filter><key name=\"Name\" criteria=\"like\">web</key></Filter></IPHost></Get>"
-        ));
+        assert!(
+            xml.contains("<Get><IPHost><Filter><key name=\"Name\" criteria=\"like\">web</key></Filter></IPHost></Get>")
+        );
     }
 
     #[test]
@@ -333,10 +315,7 @@ mod tests {
     #[test]
     fn status_code_success_and_failure() {
         assert!(check_status(r#"<Status code="200">OK</Status>"#).is_ok());
-        assert!(matches!(
-            check_status(r#"<Status code="502">failed</Status>"#),
-            Err(SdkError::Api { code: 502 })
-        ));
+        assert!(matches!(check_status(r#"<Status code="502">failed</Status>"#), Err(SdkError::Api { code: 502 })));
     }
 
     #[test]

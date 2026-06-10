@@ -8,8 +8,8 @@
 //! then offers generic `create`/`update`/`delete` over any `SophosEntity`.
 
 use crate::sophos::{
-    FirewallRule, IpHost, IpHostGroup, NetworkPolicy, ServiceDetail, ServiceDetails, ServiceObj,
-    ServiceRefList, Zone, ZoneRefList,
+    FirewallRule, IpHost, IpHostGroup, NetworkPolicy, ServiceDetail, ServiceDetails, ServiceObj, ServiceRefList, Zone,
+    ZoneRefList,
 };
 
 /// An entity that can be written to the firewall via the XML API.
@@ -113,9 +113,7 @@ impl IpHostGroup {
     pub fn new(name: &str, hosts: &[&str]) -> Self {
         IpHostGroup {
             name: name.into(),
-            host_list: Some(crate::sophos::HostList {
-                hosts: hosts.iter().map(|h| h.to_string()).collect(),
-            }),
+            host_list: Some(crate::sophos::HostList { hosts: hosts.iter().map(|h| h.to_string()).collect() }),
         }
     }
 }

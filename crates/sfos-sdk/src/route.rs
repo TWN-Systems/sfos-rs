@@ -43,16 +43,12 @@ pub fn build(cfg: &SophosConfig) -> RouteTable {
     let connected = entries.clone();
     for r in &cfg.static_routes {
         if let Some(net) = route_network(r) {
-            let zone = r
-                .interface
-                .as_deref()
-                .and_then(|n| iface_zone(cfg, n))
-                .or_else(|| {
-                    r.gateway
-                        .as_deref()
-                        .and_then(|g| g.parse::<IpAddr>().ok())
-                        .and_then(|gip| connected_zone(&connected, gip))
-                });
+            let zone = r.interface.as_deref().and_then(|n| iface_zone(cfg, n)).or_else(|| {
+                r.gateway
+                    .as_deref()
+                    .and_then(|g| g.parse::<IpAddr>().ok())
+                    .and_then(|gip| connected_zone(&connected, gip))
+            });
             entries.push(RouteEntry { network: net, interface: r.interface.clone(), zone, connected: false });
         }
     }

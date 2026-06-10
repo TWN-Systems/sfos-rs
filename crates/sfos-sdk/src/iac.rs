@@ -307,4 +307,3 @@ mod tests {
         assert!(yaml.contains("source_zones:\n          - \"LAN\""));
     }
 }
-

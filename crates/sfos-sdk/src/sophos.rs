@@ -389,8 +389,7 @@ impl SophosConfig {
             .iter()
             .filter(|r| {
                 r.policy().is_some_and(|p| {
-                    contains_ci(p.source_zone_names(), src_zone)
-                        && contains_ci(p.destination_zone_names(), dst_zone)
+                    contains_ci(p.source_zone_names(), src_zone) && contains_ci(p.destination_zone_names(), dst_zone)
                 })
             })
             .collect()

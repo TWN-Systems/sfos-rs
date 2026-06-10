@@ -55,12 +55,7 @@ fn is_ikev1(c: &IpsecConfig) -> bool {
 
 /// Compare site-to-site IPsec tunnels between two firewalls and report the
 /// asymmetries that would prevent a tunnel coming up or make it unstable.
-pub fn compare_site_to_site(
-    a_name: &str,
-    a: &SophosConfig,
-    b_name: &str,
-    b: &SophosConfig,
-) -> Vec<VpnFinding> {
+pub fn compare_site_to_site(a_name: &str, a: &SophosConfig, b_name: &str, b: &SophosConfig) -> Vec<VpnFinding> {
     let mut out = Vec::new();
     let a_s2s: Vec<&IpsecConfig> = a.ipsec_connections().filter(|c| c.is_site_to_site()).collect();
     let b_s2s: Vec<&IpsecConfig> = b.ipsec_connections().filter(|c| c.is_site_to_site()).collect();

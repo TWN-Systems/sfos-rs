@@ -179,12 +179,7 @@ mod tests {
 
     #[test]
     fn nested_entity_response() {
-        let json = to_json(
-            r#"<Response><IPHost><Name>h</Name><IPAddress>10.0.0.1</IPAddress></IPHost></Response>"#,
-        );
-        assert_eq!(
-            json,
-            r#"{"Response":{"IPHost":{"Name":"h","IPAddress":"10.0.0.1"}}}"#
-        );
+        let json = to_json(r#"<Response><IPHost><Name>h</Name><IPAddress>10.0.0.1</IPAddress></IPHost></Response>"#);
+        assert_eq!(json, r#"{"Response":{"IPHost":{"Name":"h","IPAddress":"10.0.0.1"}}}"#);
     }
 }

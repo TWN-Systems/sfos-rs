@@ -621,7 +621,10 @@ fn cmd_apply(a: &ApplyArgs, fmt: Format) -> Result<ExitCode, String> {
                 }
             }
         }
-        eprintln!("applied {applied} change(s){}", if failed > 0 { format!(", {failed} failed") } else { String::new() });
+        eprintln!(
+            "applied {applied} change(s){}",
+            if failed > 0 { format!(", {failed} failed") } else { String::new() }
+        );
         Ok(if failed > 0 { ExitCode::FAILURE } else { ExitCode::SUCCESS })
     } else {
         eprintln!("(dry run — re-run with --host … --commit to apply)");
@@ -750,11 +753,8 @@ fn cmd_export(a: &ExportArgs) -> Result<ExitCode, String> {
         for (tag, res) in &results {
             match res {
                 Ok(xml) => {
-                    let (ext, body) = if a.raw {
-                        ("xml", xml.clone())
-                    } else {
-                        ("json", pretty(&sfos_sdk::xmljson::to_json(xml)))
-                    };
+                    let (ext, body) =
+                        if a.raw { ("xml", xml.clone()) } else { ("json", pretty(&sfos_sdk::xmljson::to_json(xml))) };
                     let path = dir.join(format!("{tag}.{ext}"));
                     std::fs::write(&path, body).map_err(|e| format!("{}: {e}", path.display()))?;
                     ok += 1;
@@ -804,7 +804,7 @@ fn pretty(json: &str) -> String {
         .unwrap_or_else(|| json.to_string())
 }
 
-fn load(path: &PathBuf) -> Result<SophosConfig, String> {
+fn load(path: &std::path::Path) -> Result<SophosConfig, String> {
     parse_entities_file(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
@@ -935,8 +935,7 @@ struct Finding {
 
 fn cmd_check(cfg: &SophosConfig, fmt: Format) -> ExitCode {
     let mut findings: Vec<Finding> = Vec::new();
-    let wan_zones: BTreeSet<String> =
-        cfg.zones.iter().filter(|z| z.is_wan()).map(|z| z.name.to_lowercase()).collect();
+    let wan_zones: BTreeSet<String> = cfg.zones.iter().filter(|z| z.is_wan()).map(|z| z.name.to_lowercase()).collect();
 
     for z in cfg.undefined_zone_refs() {
         findings.push(Finding {
@@ -964,10 +963,8 @@ fn cmd_check(cfg: &SophosConfig, fmt: Format) -> ExitCode {
             .any(|z| wan_zones.contains(&z.to_lowercase()) || z.eq_ignore_ascii_case("WAN"));
 
         if from_wan && p.action_accepts() {
-            let has_ips = p
-                .intrusion_prevention
-                .as_deref()
-                .is_some_and(|s| !s.is_empty() && !s.eq_ignore_ascii_case("None"));
+            let has_ips =
+                p.intrusion_prevention.as_deref().is_some_and(|s| !s.is_empty() && !s.eq_ignore_ascii_case("None"));
             if !has_ips {
                 findings.push(Finding {
                     sev: "MEDIUM",
@@ -1072,7 +1069,7 @@ fn cmd_trace(cfg: &SophosConfig, a: &TraceArgs, fmt: Format) -> Result<ExitCode,
 fn cmd_verify(cfg: &SophosConfig, fmt: Format) {
     let model = extract::to_model(cfg);
     let mut rows: Vec<(String, shadow::ShadowFinding)> = Vec::new();
-    for (_pair, rs) in &model.rule_sets {
+    for rs in model.rule_sets.values() {
         for f in shadow::detect(rs) {
             rows.push((rs.name.clone(), f));
         }
