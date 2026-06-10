@@ -52,13 +52,11 @@ pub fn to_json(xml: &str) -> String {
                 let s = String::from_utf8_lossy(t.as_ref()).into_owned();
                 stack.last_mut().unwrap().text.push_str(s.trim());
             }
-            Ok(Event::End(_)) => {
-                if stack.len() > 1 {
-                    let f = stack.pop().unwrap();
-                    let name = f.name.clone();
-                    let node = frame_to_json(f);
-                    stack.last_mut().unwrap().children.push((name, node));
-                }
+            Ok(Event::End(_)) if stack.len() > 1 => {
+                let f = stack.pop().unwrap();
+                let name = f.name.clone();
+                let node = frame_to_json(f);
+                stack.last_mut().unwrap().children.push((name, node));
             }
             Ok(Event::Eof) => break,
             Err(_) => break,

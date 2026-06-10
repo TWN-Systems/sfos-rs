@@ -1,6 +1,7 @@
 # CI/CD pipelines
 
-Five GitHub Actions workflows plus Dependabot. All of them follow the same
+Four GitHub Actions workflows plus Dependabot, GitHub **default-setup
+CodeQL**, and the repo owner's Trivy workflow. All of them follow the same
 hardening conventions (see [below](#hardening-conventions)).
 
 ## Overview
@@ -9,7 +10,7 @@ hardening conventions (see [below](#hardening-conventions)).
 |---|---|---|---|
 | `build.yml` | push to `main`, every PR, manual | **lint** job (`cargo fmt --check`, `cargo clippy -D warnings`) + `cargo build --release --locked` + `cargo test --release --locked` on Linux **and** Windows; uploads the binaries as artifacts | the code doesn't compile, tests fail on at least one platform, or fmt/clippy is dirty |
 | `security.yml` | push to `main`, every PR, weekly (Mon 06:37 UTC), manual | three independent jobs: `cargo-audit` (RUSTSEC advisories), `cargo-deny` (advisories + licenses + bans + sources policy from `deny.toml`), `opengrep` SAST | a dependency has a known vulnerability / policy violation, or SAST flagged the diff |
-| `codeql.yml` | push to `main`, every PR, weekly (Tue 04:23 UTC), manual | CodeQL analysis (Rust) | a code-scanning finding. *Skipped while the repo is private* (needs public repo or GHAS) |
+| CodeQL (default setup) | every PR, push to `main` | CodeQL analysis (rust + actions), managed by GitHub — no workflow file. The old advanced `codeql.yml` was removed: default setup **rejects** SARIF from advanced configs, so the two cannot coexist | a code-scanning finding |
 | `scorecard.yml` | push to `main`, weekly (Mon 05:19 UTC), branch-protection changes, manual | OpenSSF Scorecard posture score | repo hygiene regressed. *Skipped while private* |
 | `release.yml` | tag `v*` | build → checksum → SLSA provenance attestation → Sigstore keyless signing → SPDX SBOM → GitHub release | the release did not publish; never ship artifacts from a red run |
 
@@ -20,10 +21,10 @@ max 10 open PRs. These PRs land in the same CI gauntlet as any other change.
 ## What runs when
 
 - **Every PR:** lint (fmt+clippy), build+test (both OSes), cargo-audit,
-  cargo-deny, opengrep, CodeQL (when public). This is the merge gate.
+  cargo-deny, opengrep, CodeQL (default setup). This is the merge gate.
 - **Push to `main`:** the same set re-runs against the merged tree.
-- **Weekly:** security and CodeQL re-run on a schedule so *new* advisories
-  against *unchanged* code still surface; Scorecard re-scores the repo.
+- **Weekly:** security re-runs on a schedule so *new* advisories against
+  *unchanged* code still surface; Scorecard re-scores the repo.
 - **Tag `v*`:** the release pipeline (below).
 
 ## Release pipeline anatomy
