@@ -54,7 +54,7 @@ pub fn build(cfg: &SophosConfig) -> RouteTable {
     }
 
     // Most specific first.
-    entries.sort_by(|a, b| b.network.prefix().cmp(&a.network.prefix()));
+    entries.sort_by_key(|e| std::cmp::Reverse(e.network.prefix()));
     RouteTable { entries }
 }
 
