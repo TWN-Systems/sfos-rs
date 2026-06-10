@@ -6,6 +6,8 @@ through the rule base, and apply declarative configuration changes.
 
 ## Documentation index
 
+Using the tool:
+
 | Document | What it covers |
 |---|---|
 | [cli-reference.md](cli-reference.md) | Every command, flag, default, and exit code |
@@ -13,6 +15,17 @@ through the rule base, and apply declarative configuration changes.
 | [errors.md](errors.md) | Every error message, what it means, and how to fix it |
 | [safety.md](safety.md) | Read-only vs write operations; potentially destructive activities |
 | [playbooks.md](playbooks.md) | SOPs for common tasks (multi-site VPN audit, BCDR export, change application, …) |
+
+Developing and operating the project:
+
+| Document | What it covers |
+|---|---|
+| [building.md](building.md) | Building from source, `--locked`, tests, dependency footprint |
+| [ci.md](ci.md) | Every CI/CD workflow, the release pipeline, hardening conventions |
+| [maintaining.md](maintaining.md) | Maintainer guide: dependencies, advisories, releases, account security |
+| [supply-chain.md](supply-chain.md) | Threat model, controls, crate/maintainer-compromise scenarios |
+| [incident-response.md](incident-response.md) | What to do when something happens (six scenarios) |
+| [../CONTRIBUTING.md](../CONTRIBUTING.md) | Contribution scope, conventions, PR checklist |
 
 ## Quick orientation
 
