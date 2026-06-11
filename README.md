@@ -6,7 +6,6 @@
 [![OpenSSF Baseline](https://www.bestpractices.dev/projects/13145/baseline)](https://www.bestpractices.dev/projects/13145)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13145/badge)](https://www.bestpractices.dev/projects/13145)
 
-[![License: MIT](https://img.shields.io/github/license/TWN-Systems/sfos-rs?color=blue)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/TWN-Systems/sfos-rs?sort=semver&logo=github)](https://github.com/TWN-Systems/sfos-rs/releases/latest)
 [![Signed releases](https://img.shields.io/badge/releases-cosign%20%2B%20SLSA-blue?logo=sigstore&logoColor=white)](SECURITY.md#verifying-a-downloaded-release-binary)
 [![Platforms](https://img.shields.io/badge/platforms-linux%20%7C%20windows-informational?logo=linux&logoColor=white)](https://github.com/TWN-Systems/sfos-rs/releases)
