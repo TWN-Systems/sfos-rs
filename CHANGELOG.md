@@ -19,6 +19,12 @@ All notable changes to sfos-rs are documented here. Format follows
 - Terraform-style plan/commit (`apply`, dry-run by default, `--prune`)
 - Documentation set under `docs/`; CI (build/test/lint, cargo-audit,
   cargo-deny, opengrep, CodeQL, Scorecard); signed + attested releases
+- CI now publishes ready-to-download, signed artifacts on every release:
+  the Linux/Windows binaries, a no-dependency Debian `.deb`, and a `scratch`
+  container image on GHCR (`ghcr.io/twn-systems/sfos-rs`). A `v*` tag cuts a
+  versioned release (`:<version>`/`:latest`); pushes to `main` refresh a
+  rolling `edge` pre-release and `:edge` image. Every artifact (binaries,
+  `.deb`, image) is cosign-signed and carries SLSA build provenance.
 
 ### Changed
 - `graph` rendered views (DOT, Mermaid) are tuned for legibility: intra-zone
