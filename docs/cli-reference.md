@@ -105,12 +105,22 @@ exits `0` (informational).
 ### `graph <FILE> [--mermaid]`
 
 Zone-reachability graph from enabled accept rules. Edge label = the union of
-services allowed between the two zones (`any` if a rule has no service list).
-Empty zone lists render as the pseudo-node `Any`.
+services allowed between the two zones. Empty zone lists render as the
+pseudo-node `Any`.
 
 - default: Graphviz DOT (`dot -Tsvg`)
-- `--mermaid`: Mermaid `graph LR` (paste into a Markdown doc)
-- `--format json`: `[{from, to, services[]}, …]` edge list (`--mermaid` ignored)
+- `--mermaid`: Mermaid `graph LR` (paste into mermaid.live or a Markdown doc)
+- `--format json`: `[{from, to, services[], from_wan, self_loop}, …]` edge list
+  (`--mermaid` ignored)
+
+The **rendered** views (DOT, Mermaid) are tuned for legibility: self-loops and
+the uninformative `any` label are dropped (a bare arrow already means
+"allowed"), zones with no accept rules are parked in a side bucket, and
+WAN-sourced edges — the inbound-exposure ones — are coloured red. Mermaid
+labels are quoted, so service names containing `(` `)` `,` (e.g. `SMTP(S)`)
+render instead of tripping the parser, and node IDs are sanitised with the real
+zone name carried as a display label. The **JSON** view is the faithful,
+complete export — every edge, self-loops included — for programmatic use.
 
 ### `explain <FILE> --to <IP|HOST> [--proto tcp|udp|icmp] [--dport N] [--from <ZONE>]... [--src <IP>]`
 

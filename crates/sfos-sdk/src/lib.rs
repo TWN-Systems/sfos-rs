@@ -14,6 +14,7 @@ pub mod apply;
 pub mod client;
 pub mod entity;
 pub mod extract;
+pub mod graph;
 pub mod iac;
 pub mod ir;
 pub mod reach;

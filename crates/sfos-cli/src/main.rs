@@ -1122,74 +1122,12 @@ fn cmd_verify(cfg: &SophosConfig, fmt: Format) {
 // ── graph (zone reachability) ───────────────────────────────────────────────
 
 fn cmd_graph(cfg: &SophosConfig, a: &GraphArgs, fmt: Format) {
-    let mut edges: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
-    let mut nodes: BTreeSet<String> = cfg.zones.iter().map(|z| z.name.clone()).collect();
-
-    for r in &cfg.firewall_rules {
-        if !r.enabled() {
-            continue;
-        }
-        let Some(p) = r.policy() else { continue };
-        if !p.action_accepts() {
-            continue;
-        }
-        let svcs = p.service_names();
-        for s in zones_or_any(p.source_zone_names()) {
-            for d in zones_or_any(p.destination_zone_names()) {
-                nodes.insert(s.clone());
-                nodes.insert(d.clone());
-                let set = edges.entry((s.clone(), d)).or_default();
-                if svcs.is_empty() {
-                    set.insert("any".into());
-                } else {
-                    set.extend(svcs.iter().cloned());
-                }
-            }
-        }
-    }
-
+    let g = sfos_sdk::graph::build(cfg);
     match fmt {
-        Format::Json => {
-            let arr: Vec<_> = edges
-                .iter()
-                .map(|((s, d), svcs)| serde_json::json!({ "from": s, "to": d, "services": svcs.iter().collect::<Vec<_>>() }))
-                .collect();
-            println!("{}", serde_json::to_string_pretty(&arr).unwrap());
-        }
-        Format::Text if a.mermaid => {
-            println!("graph LR");
-            for ((s, d), svcs) in &edges {
-                println!("  {} -->|{}| {}", sanitize(s), label(svcs), sanitize(d));
-            }
-        }
-        Format::Text => {
-            println!("digraph sfos {{");
-            println!("  rankdir=LR; node [shape=box];");
-            for n in &nodes {
-                println!("  \"{n}\";");
-            }
-            for ((s, d), svcs) in &edges {
-                println!("  \"{s}\" -> \"{d}\" [label=\"{}\"];", label(svcs));
-            }
-            println!("}}");
-        }
+        Format::Json => println!("{}", serde_json::to_string_pretty(&g.edges_json()).unwrap()),
+        Format::Text if a.mermaid => print!("{}", g.to_mermaid()),
+        Format::Text => print!("{}", g.to_dot()),
     }
-}
-
-fn zones_or_any(zones: &[String]) -> Vec<String> {
-    if zones.is_empty() {
-        vec!["Any".to_string()]
-    } else {
-        zones.to_vec()
-    }
-}
-
-fn label(svcs: &BTreeSet<String>) -> String {
-    svcs.iter().cloned().collect::<Vec<_>>().join(", ")
-}
-
-fn sanitize(s: &str) -> String {
-    s.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect()
 }
 
 // ── shared rendering ────────────────────────────────────────────────────────
