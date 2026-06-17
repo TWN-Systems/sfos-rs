@@ -7,7 +7,7 @@ This page lists each message, what actually went wrong, and the fix.
 
 | Message | Cause | Fix |
 |---|---|---|
-| `<path>: <reason>` | the config file could not be read or parsed (`load` failure: missing file, not XML, truncated export) | check the path; the file must be an `Entities.xml` backup or an XML API `<Response>` body. Try `parse <file>` to isolate. |
+| `<path>: <reason>` | the config file could not be read or parsed (`load` failure: missing file, not XML, truncated export) | check the path; the file must be an `Entities.xml` backup or an XML API `<Response>` body. Try `parse <file>` to isolate. A *single* unmodelled entity no longer fails the load — see [partial parse](#partial-parse-skipped-entities) below; a hard error here means the file itself is unreadable or not XML. |
 | `specify --referencing <object>, or both --from <zone> and --to <zone>` | `search` called with no selector, or only one of `--from`/`--to` | pick one mode: `--referencing NAME`, or both `--from Z --to Z` |
 | `unknown --proto '<x>' (use tcp\|udp\|icmp)` | `--proto` was something else | only `tcp`, `udp`, `icmp` are modelled |
 | `invalid --src IP '<x>'` / `invalid --dst IP` / `invalid --to IP '<x>'` | the value didn't parse as an IPv4/IPv6 address | `site-path` takes **IPs only**; `path`/`explain --to` also accept an IPHost object name |
@@ -78,9 +78,12 @@ A response with **no** `<Status>` element at all is treated as success
 
 ### `XML parse error: <detail>` (`SdkError::Xml`)
 
-The response wasn't parseable into the typed model. If `get <Tag> --raw`
-shows valid XML, the entity's shape isn't modelled — use `--raw`/JSON output,
-and open an issue with the (redacted) XML.
+The response body wasn't valid XML at the document level (truncated, wrong
+content type, an HTML error page, …). A *single* unmodelled entity inside an
+otherwise-valid response no longer trips this — it's skipped (see
+[partial parse](#partial-parse-skipped-entities)). If `get <Tag> --raw` shows
+valid XML but a tag you need is missing from the parsed output, its shape isn't
+modelled yet — use `--raw`/JSON output, and open an issue with the (redacted) XML.
 
 ## `apply --commit` partial failures
 
@@ -94,6 +97,30 @@ applied 3 change(s), 1 failed
 Exit code is `1` if anything failed. The applied changes **stay applied** —
 there is no rollback. Re-running `apply` is the recovery path: the plan is
 recomputed against the new live state, so already-applied items drop out.
+
+## Partial parse (skipped entities)
+
+When an offline command loads a config, a clean document is parsed whole. If
+the file contains a top-level entity whose shape the typed model can't take
+(an element repeated where a scalar was expected, a field missing, a
+firmware-specific shape we don't model yet), the loader **skips that one
+element and keeps going** rather than aborting. You'll see a note on stderr:
+
+```
+sfos-rs: note: skipped 1 unmodelled entity (VPNIPSecConnection ×1); analysis continues on the rest
+sfos-rs:   first: <VPNIPSecConnection> — <detail>
+```
+
+The analysis then runs on everything that *did* parse, and exit codes reflect
+the findings, not the skip. This is by design — a real export exercises far
+more of the schema than the curated fixtures, and one odd entity shouldn't
+sink the whole report. If a tag you care about is being skipped, capture it
+live with `get <Tag> --raw` and open an issue with the (redacted) XML so the
+model can be extended.
+
+> Note: `XML parse error` only surfaces now when the file as a whole isn't
+> valid XML (truncated, wrong encoding, not a `<Configuration>`/`<Response>`
+> document). Per-entity modelling gaps become skips, not hard failures.
 
 ## `export` partial results
 

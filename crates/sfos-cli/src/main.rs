@@ -17,7 +17,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use sfos_sdk::acl::{evaluate, Packet};
 use sfos_sdk::client::Client;
 use sfos_sdk::ir::{FilterAction, Protocol};
-use sfos_sdk::sophos::{parse_entities_file, FirewallRule, IpHost, SophosConfig};
+use sfos_sdk::sophos::{load_entities_file, FirewallRule, IpHost, SophosConfig};
 use sfos_sdk::{extract, reach, shadow, vpn};
 
 #[derive(Parser)]
@@ -805,7 +805,23 @@ fn pretty(json: &str) -> String {
 }
 
 fn load(path: &std::path::Path) -> Result<SophosConfig, String> {
-    parse_entities_file(path).map_err(|e| format!("{}: {e}", path.display()))
+    let report = load_entities_file(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if !report.skipped.is_empty() {
+        let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+        for s in &report.skipped {
+            *counts.entry(s.tag.as_str()).or_default() += 1;
+        }
+        let summary = counts.iter().map(|(tag, n)| format!("{tag} ×{n}")).collect::<Vec<_>>().join(", ");
+        eprintln!(
+            "sfos-rs: note: skipped {} unmodelled entit{} ({summary}); analysis continues on the rest",
+            report.skipped.len(),
+            if report.skipped.len() == 1 { "y" } else { "ies" },
+        );
+        if let Some(first) = report.skipped.first() {
+            eprintln!("sfos-rs:   first: <{}> — {}", first.tag, first.error);
+        }
+    }
+    Ok(report.config)
 }
 
 // ── parse ───────────────────────────────────────────────────────────────────

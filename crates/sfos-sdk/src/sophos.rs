@@ -6,6 +6,8 @@
 //! mirror the Sophos XML API tag names. Unmodelled elements are ignored on
 //! deserialisation, so a full real export parses even though we consume a subset.
 
+use quick_xml::events::Event;
+use quick_xml::Reader;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -18,15 +20,157 @@ pub enum SophosParseError {
     Io(#[from] std::io::Error),
 }
 
-/// Parse an `Entities.xml` (or API response) string.
+/// A top-level entity element that could not be deserialised into the typed
+/// model. Recorded — rather than aborting the whole parse — by the resilient
+/// loader, so one unmodelled or malformed element doesn't sink the report.
+#[derive(Debug, Clone)]
+pub struct SkippedEntity {
+    /// The element tag, e.g. `"VPNIPSecConnection"`.
+    pub tag: String,
+    /// The deserialisation error for that single element.
+    pub error: String,
+}
+
+/// The outcome of a resilient parse: the typed config plus the entities that
+/// had to be skipped (empty when the document deserialised cleanly).
+#[derive(Debug, Default)]
+pub struct LoadReport {
+    pub config: SophosConfig,
+    pub skipped: Vec<SkippedEntity>,
+}
+
+/// Parse an `Entities.xml` (or API response) string into the typed model.
+///
+/// Resilient by design: a clean document is deserialised whole; if any single
+/// entity can't be modelled (an unexpected shape, a duplicated child a scalar
+/// field can't hold, …) the rest are still salvaged. Use [`load_entities`] when
+/// you need to know *what* was skipped.
 pub fn parse_entities(xml: &str) -> Result<SophosConfig, SophosParseError> {
+    Ok(load_entities(xml)?.config)
+}
+
+/// Parse from a file path. See [`parse_entities`].
+pub fn parse_entities_file(path: &Path) -> Result<SophosConfig, SophosParseError> {
+    Ok(load_entities_file(path)?.config)
+}
+
+/// Parse, reporting any entities that had to be skipped.
+///
+/// Fast path: a clean document deserialises whole (identical to a strict parse).
+/// Slow path: if that fails, each top-level entity is deserialised on its own so
+/// a single bad element is recorded and skipped instead of aborting everything.
+pub fn load_entities(xml: &str) -> Result<LoadReport, SophosParseError> {
+    // PowerShell `Set-Content -Encoding utf8` (PS 5.1) prepends a UTF-8 BOM;
+    // strip it so both the strict and per-entity paths see clean XML.
+    let xml = xml.strip_prefix('\u{feff}').unwrap_or(xml);
+
+    if let Ok(config) = strict_parse(xml) {
+        return Ok(LoadReport { config, skipped: Vec::new() });
+    }
+
+    let mut report = LoadReport::default();
+    for (tag, raw) in top_level_entities(xml)? {
+        merge_entity(&mut report, &tag, raw);
+    }
+    Ok(report)
+}
+
+/// Parse from a file path, reporting any entities that had to be skipped.
+pub fn load_entities_file(path: &Path) -> Result<LoadReport, SophosParseError> {
+    let content = std::fs::read_to_string(path)?;
+    load_entities(&content)
+}
+
+/// Deserialise the whole document at once — fails if *any* entity is unmodelled.
+fn strict_parse(xml: &str) -> Result<SophosConfig, SophosParseError> {
     quick_xml::de::from_str(xml).map_err(|e| SophosParseError::Xml(e.to_string()))
 }
 
-/// Parse from a file path.
-pub fn parse_entities_file(path: &Path) -> Result<SophosConfig, SophosParseError> {
-    let content = std::fs::read_to_string(path)?;
-    parse_entities(&content)
+/// Split the root element's direct children into `(tag, raw_xml)` slices, so
+/// each entity can be deserialised independently. Tracks element depth and uses
+/// the reader's byte offsets to carve each `<Tag>…</Tag>` out of the input.
+fn top_level_entities(xml: &str) -> Result<Vec<(String, &str)>, SophosParseError> {
+    let mut reader = Reader::from_str(xml);
+    let mut buf = Vec::new();
+    let mut out: Vec<(String, &str)> = Vec::new();
+    let mut depth: usize = 0;
+    // (tag, byte offset of the opening `<`) for the entity currently open at depth 2.
+    let mut current: Option<(String, usize)> = None;
+
+    loop {
+        let start = reader.buffer_position() as usize;
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) => {
+                depth += 1;
+                if depth == 2 {
+                    current = Some((tag_name(e.name().as_ref()), start));
+                }
+            }
+            Ok(Event::End(_)) => {
+                if depth == 2 {
+                    if let Some((tag, from)) = current.take() {
+                        let to = reader.buffer_position() as usize;
+                        out.push((tag, &xml[from..to]));
+                    }
+                }
+                depth = depth.saturating_sub(1);
+            }
+            // A self-closing direct child, e.g. `<Hotfix/>`.
+            Ok(Event::Empty(e)) if depth == 1 => {
+                let to = reader.buffer_position() as usize;
+                out.push((tag_name(e.name().as_ref()), &xml[start..to]));
+            }
+            Ok(Event::Eof) => break,
+            Ok(_) => {}
+            Err(e) => return Err(SophosParseError::Xml(e.to_string())),
+        }
+        buf.clear();
+    }
+    Ok(out)
+}
+
+fn tag_name(qname: &[u8]) -> String {
+    String::from_utf8_lossy(qname).into_owned()
+}
+
+/// Deserialise one top-level entity into the matching field of `report.config`,
+/// recording it under `report.skipped` if it can't be modelled. Unknown tags are
+/// ignored — exactly as the strict whole-document parser silently drops them.
+fn merge_entity(report: &mut LoadReport, tag: &str, raw: &str) {
+    let cfg = &mut report.config;
+    let skipped = &mut report.skipped;
+
+    macro_rules! collect {
+        ($vec:expr, $ty:ty) => {
+            match quick_xml::de::from_str::<$ty>(raw) {
+                Ok(v) => $vec.push(v),
+                Err(e) => skipped.push(SkippedEntity { tag: tag.to_string(), error: e.to_string() }),
+            }
+        };
+    }
+    macro_rules! set_opt {
+        ($slot:expr, $ty:ty) => {
+            match quick_xml::de::from_str::<$ty>(raw) {
+                Ok(v) => $slot = Some(v),
+                Err(e) => skipped.push(SkippedEntity { tag: tag.to_string(), error: e.to_string() }),
+            }
+        };
+    }
+
+    match tag {
+        "Zone" => collect!(cfg.zones, Zone),
+        "FirewallRule" => collect!(cfg.firewall_rules, FirewallRule),
+        "IPHost" => collect!(cfg.ip_hosts, IpHost),
+        "IPHostGroup" => collect!(cfg.ip_host_groups, IpHostGroup),
+        "Services" => collect!(cfg.services, ServiceObj),
+        "VPNIPSecConnection" => collect!(cfg.ipsec, IpsecConnection),
+        "Interface" => collect!(cfg.interfaces, Interface),
+        "NATRule" => collect!(cfg.nat_rules, NatRule),
+        "UnicastRoute" => collect!(cfg.static_routes, StaticRoute),
+        "AdminSettings" => set_opt!(cfg.admin_settings, AdminSettings),
+        "Hotfix" => set_opt!(cfg.hotfix, Hotfix),
+        _ => {} // unmodelled tag — ignored, matching the strict parser
+    }
 }
 
 // ── Model ─────────────────────────────────────────────────────────────────────
@@ -57,13 +201,15 @@ pub struct SophosConfig {
     pub hotfix: Option<Hotfix>,
 }
 
-/// `<VPNIPSecConnection>` — confirmed to wrap its body in `<Configuration>`
-/// (migration-utility template). Use [`SophosConfig::ipsec_connections`] to
-/// iterate the inner [`IpsecConfig`] bodies.
+/// `<VPNIPSecConnection>` — wraps its body in `<Configuration>` (migration-utility
+/// template). A real backup can repeat `<Configuration>` under one connection
+/// element, so this is a list (a scalar field aborted the whole parse with
+/// "duplicate field `Configuration`"). Use [`SophosConfig::ipsec_connections`]
+/// to iterate the inner [`IpsecConfig`] bodies.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct IpsecConnection {
     #[serde(rename = "Configuration", default)]
-    pub configuration: IpsecConfig,
+    pub configurations: Vec<IpsecConfig>,
 }
 
 /// The IPsec connection body (the children of `<Configuration>`).
@@ -378,9 +524,10 @@ pub struct Hotfix {
 // ── Search / query primitives ───────────────────────────────────────────────
 
 impl SophosConfig {
-    /// Iterate the IPsec connection bodies (unwrapping the `<Configuration>` layer).
+    /// Iterate the IPsec connection bodies (unwrapping the `<Configuration>` layer,
+    /// across however many `<Configuration>` blocks each connection element holds).
     pub fn ipsec_connections(&self) -> impl Iterator<Item = &IpsecConfig> + '_ {
-        self.ipsec.iter().map(|c| &c.configuration)
+        self.ipsec.iter().flat_map(|c| c.configurations.iter())
     }
 
     /// Rules carrying traffic from `src_zone` into `dst_zone` (case-insensitive).
@@ -462,5 +609,61 @@ mod tests {
         assert_eq!(cfg.rules_referencing("HTTPS").len(), 2);
         assert_eq!(cfg.rules_from_to("lan", "wan").len(), 1);
         assert_eq!(cfg.undefined_zone_refs(), vec!["GUEST".to_string()]);
+    }
+
+    #[test]
+    fn clean_document_reports_no_skips() {
+        // The fast path handles a clean document whole — nothing is skipped.
+        let report = load_entities(ENTITIES).unwrap();
+        assert!(report.skipped.is_empty());
+        assert_eq!(report.config.zones.len(), 3);
+    }
+
+    #[test]
+    fn multiple_configuration_blocks_under_one_connection_parse() {
+        // Regression: a single <VPNIPSecConnection> with repeated <Configuration>
+        // children used to abort the whole parse with "duplicate field
+        // `Configuration`". They now collect into a list and parse cleanly.
+        let xml = r#"<Configuration>
+          <VPNIPSecConnection>
+            <Configuration><Name>tunnel-a</Name><ConnectionType>SiteToSite</ConnectionType></Configuration>
+            <Configuration><Name>tunnel-b</Name><ConnectionType>SiteToSite</ConnectionType></Configuration>
+          </VPNIPSecConnection>
+        </Configuration>"#;
+        // The whole document deserialises cleanly now (fast path), no skips.
+        let report = load_entities(xml).unwrap();
+        assert!(report.skipped.is_empty());
+        let names: Vec<_> = report.config.ipsec_connections().map(|c| c.name.clone()).collect();
+        assert_eq!(names, vec!["tunnel-a", "tunnel-b"]);
+    }
+
+    #[test]
+    fn resilient_loader_skips_one_bad_entity_and_keeps_the_rest() {
+        // A real export surfaces shapes the test corpus never had. One entity
+        // that can't be modelled (here a <Zone> with no <Name>) must not nuke the
+        // whole config: the good entities load and the bad one is recorded.
+        let xml = r#"<Configuration>
+          <Zone><Name>LAN</Name><Type>LAN</Type></Zone>
+          <Zone><Type>BROKEN</Type></Zone>
+          <IPHost><Name>web</Name><HostType>IP</HostType><IPAddress>10.0.0.1</IPAddress></IPHost>
+        </Configuration>"#;
+        // Strict whole-document parse fails on the nameless zone…
+        assert!(strict_parse(xml).is_err());
+        // …but the resilient loader salvages the rest and reports the skip.
+        let report = load_entities(xml).unwrap();
+        assert_eq!(report.config.zones.len(), 1);
+        assert_eq!(report.config.zones[0].name, "LAN");
+        assert_eq!(report.config.ip_hosts.len(), 1);
+        assert_eq!(report.config.ip_hosts[0].name, "web");
+        assert_eq!(report.skipped.len(), 1);
+        assert_eq!(report.skipped[0].tag, "Zone");
+    }
+
+    #[test]
+    fn utf8_bom_is_tolerated() {
+        // PowerShell `Set-Content -Encoding utf8` (PS 5.1) prepends a BOM.
+        let xml = "\u{feff}<Configuration><Zone><Name>LAN</Name><Type>LAN</Type></Zone></Configuration>";
+        let cfg = parse_entities(xml).unwrap();
+        assert_eq!(cfg.zones.len(), 1);
     }
 }
