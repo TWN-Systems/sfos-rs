@@ -5,6 +5,21 @@ binary with no runtime dependencies. The CLI links no system libraries — TLS i
 `rustls` with the webpki root store compiled into the binary — so there is
 nothing to dynamically link and no CA-certificate bundle to ship.
 
+## Where to get the published builds
+
+CI (`release.yml`) publishes both forms — plus the raw Linux/Windows binaries —
+already signed and provenance-attested. You don't have to build them yourself:
+
+- **Container:** `docker pull ghcr.io/twn-systems/sfos-rs:latest` (or `:edge`
+  for the rolling `main` build, or a `:<version>` tag).
+- **`.deb` and raw binaries:** attached to each
+  [GitHub release](https://github.com/TWN-Systems/sfos-rs/releases) — versioned
+  releases from `v*` tags, plus a rolling `edge` pre-release tracking `main`.
+
+The commands below are for building the same artifacts **locally** (e.g. for an
+air-gapped build or a quick change). Verification of downloaded artifacts is in
+[SECURITY.md](../SECURITY.md#verifying-a-downloaded-release-binary).
+
 ## Container image (`Dockerfile`)
 
 A two-stage build: Alpine + Rust compiles the static binary, and the runtime

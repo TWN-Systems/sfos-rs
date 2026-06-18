@@ -12,8 +12,8 @@ CodeQL**. All of them follow the same hardening conventions (see
 | `security.yml` | push to `main`, every PR, weekly (Mon 06:37 UTC), manual | three independent jobs: `cargo-audit` (RUSTSEC advisories), `cargo-deny` (advisories + licenses + bans + sources policy from `deny.toml`), `opengrep` SAST | a dependency has a known vulnerability / policy violation, or SAST flagged the diff |
 | CodeQL (default setup) | every PR, push to `main` | CodeQL analysis (rust + actions), managed by GitHub — no workflow file. The old advanced `codeql.yml` was removed: default setup **rejects** SARIF from advanced configs, so the two cannot coexist | a code-scanning finding |
 | `scorecard.yml` | push to `main`, weekly (Mon 05:19 UTC), branch-protection changes, manual | OpenSSF Scorecard posture score | repo hygiene regressed. Requires `ossf/scorecard-action@*` in the repo's Actions allowlist |
-| `trivy.yml` | push to `main`, every PR, weekly (Sat 18:33 UTC), manual | Trivy **filesystem** scan: dependency vulns, secrets, IaC/workflow misconfig → SARIF to code scanning (this repo ships binaries, not images — there is no Dockerfile to scan) | a CRITICAL/HIGH/MEDIUM finding in the tree |
-| `release.yml` | tag `v*` | build → checksum → SLSA provenance attestation → Sigstore keyless signing → SPDX SBOM → GitHub release | the release did not publish; never ship artifacts from a red run |
+| `trivy.yml` | push to `main`, every PR, weekly (Sat 18:33 UTC), manual | Trivy **filesystem** scan: dependency vulns, secrets, IaC/workflow misconfig (incl. the `Dockerfile`) → SARIF to code scanning | a CRITICAL/HIGH/MEDIUM finding in the tree |
+| `release.yml` | tag `v*` **and** push to `main` | build → checksum → SLSA provenance → Sigstore keyless signing → SPDX SBOM → publishes binaries + `.deb` + a signed GHCR image. Tags cut a versioned release (`:<version>`/`:latest`); `main` refreshes a rolling `edge` pre-release (`:edge`) | the release/edge build did not publish; never ship artifacts from a red run |
 
 Dependabot (`.github/dependabot.yml`): weekly grouped update PRs for **cargo**
 (all crates in one PR) and **github-actions** (all action pins in one PR),
@@ -26,11 +26,15 @@ max 10 open PRs. These PRs land in the same CI gauntlet as any other change.
 - **Push to `main`:** the same set re-runs against the merged tree.
 - **Weekly:** security re-runs on a schedule so *new* advisories against
   *unchanged* code still surface; Scorecard re-scores the repo.
-- **Tag `v*`:** the release pipeline (below).
+- **Tag `v*`:** the release pipeline (below) cuts a versioned release.
+- **Push to `main`:** the same pipeline refreshes the rolling `edge`
+  pre-release and the `:edge` image, so downloads are available without a tag.
 
 ## Release pipeline anatomy
 
-`release.yml`, on pushing a tag matching `v*`:
+`release.yml` runs on a `v*` tag (channel **release**) or a push to `main`
+(channel **edge**); a `meta` job derives the channel, tag, and image name. Both
+channels run the same signed build:
 
 1. **build** (matrix: `ubuntu-latest` → `sfos-rs-linux-x86_64`,
    `windows-latest` → `sfos-rs-windows-x86_64.exe`):
@@ -44,11 +48,24 @@ max 10 open PRs. These PRs land in the same CI gauntlet as any other change.
    - **sign** with `cosign sign-blob --yes --bundle <asset>.cosign.bundle`
      (Sigstore keyless: the signing identity is the workflow itself, recorded
      in the public Rekor transparency log)
-2. **sbom:** generates an SPDX SBOM for the dependency tree
-   (`cargo sbom`, version-pinned install) named
-   `sfos-rs-<tag>.spdx.json`.
-3. **publish:** downloads all staged artifacts and creates the GitHub
-   release with `gh release create --generate-notes`.
+2. **deb:** builds the static `x86_64-unknown-linux-musl` binary, packages it
+   with `packaging/deb/build-deb.sh` (no `Depends`), then checksums, attests,
+   and signs the `.deb` exactly like the binaries.
+3. **docker:** `docker build` the `scratch` image, push to
+   `ghcr.io/twn-systems/sfos-rs` (`:<version>` + `:latest` on a tag, `:edge`
+   on `main`), attest image provenance (`push-to-registry`), and
+   `cosign sign` the image by digest. Needs `packages: write`.
+4. **sbom:** generates an SPDX SBOM for the dependency tree
+   (`cargo sbom`, version-pinned install) named `sfos-rs-<ref>.spdx.json`.
+5. **publish:** downloads all staged artifacts and, for a tag, creates the
+   versioned GitHub release (`gh release create --generate-notes`); for `main`,
+   moves the `edge` tag to the new commit and replaces the pre-release assets.
+
+> The container image must be **made public once** in the repo's package
+> settings before anonymous `docker pull` works (the first push creates a
+> private GHCR package). All actions are GitHub-owned and SHA-pinned; `cosign`
+> and `docker` are invoked as pinned/preinstalled binaries, never third-party
+> actions — consistent with the Actions allowlist.
 
 Per-job permissions: the build job has `contents: read` plus
 `id-token: write`/`attestations: write` (for OIDC signing); only the publish

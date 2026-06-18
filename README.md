@@ -43,6 +43,29 @@ Full documentation lives in [`docs/`](docs/README.md):
 [safety / destructive operations](docs/safety.md) ·
 [playbooks](docs/playbooks.md) (multi-site VPN audit, BCDR export, safe change application, …).
 
+## Install
+
+Pick a prebuilt, signed artifact — or build from source (below).
+
+```bash
+# Container (GHCR) — minimal scratch image, just the static binary
+docker pull ghcr.io/twn-systems/sfos-rs:latest
+docker run --rm -v "$PWD:/data:ro" ghcr.io/twn-systems/sfos-rs:latest parse /data/Entities.xml
+
+# Debian / Ubuntu — statically linked, no dependencies
+#   grab sfos-rs_<ver>_amd64.deb from the latest release
+sudo dpkg -i sfos-rs_*_amd64.deb
+
+# Raw binary — Linux and Windows .exe are attached to each release
+#   https://github.com/TWN-Systems/sfos-rs/releases/latest
+```
+
+Every release artifact is **cosign-signed (keyless)** and carries **SLSA build
+provenance** — verify before trusting a download
+([SECURITY.md](SECURITY.md#verifying-a-downloaded-release-binary)). Versioned
+releases come from `v*` tags; a rolling **`edge`** pre-release and a `:edge`
+image track the latest `main` for early testing (not for production).
+
 ## Build
 
 ```bash
