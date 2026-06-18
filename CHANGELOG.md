@@ -20,7 +20,18 @@ All notable changes to sfos-rs are documented here. Format follows
 - Documentation set under `docs/`; CI (build/test/lint, cargo-audit,
   cargo-deny, opengrep, CodeQL, Scorecard); signed + attested releases
 
+### Changed
+- `graph` rendered views (DOT, Mermaid) are tuned for legibility: intra-zone
+  self-loops and the uninformative `any` edge label are dropped, zones with no
+  accept rules are parked in a side bucket, and WAN-sourced edges (inbound
+  exposure) are coloured red. `--format json` is unchanged in shape (now also
+  carries `from_wan`/`self_loop`) and remains the faithful, complete export.
+
 ### Fixed
+- `graph --mermaid` now quotes edge labels, so service names containing `(`,
+  `)`, or `,` (e.g. `SMTP(S)`) render instead of failing Mermaid's parser
+  (`Parse error … got 'PS'`); node IDs are sanitised with the real zone name
+  kept as a display label, so a zone like `Guest WiFi` can't emit a broken ID.
 - Parsing a real backup `Entities.xml` no longer aborts on a single
   unexpected element. The loader now salvages every modellable entity and
   reports the ones it had to skip (`note: skipped N unmodelled entities …`)
