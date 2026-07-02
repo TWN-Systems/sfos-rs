@@ -14,9 +14,10 @@ Module map (`sfos_sdk::…`):
 | Module | Purpose |
 |---|---|
 | `client` | live XML API client: auth, get/set/remove, filtered get, full export |
+| `central` | Sophos Central cloud API client: OAuth2 auth, `whoami`, `/siem/v1` events/alerts polling with cursor resume — a separate product surface from `client` |
 | `sophos` | typed config model + `Entities.xml` / API-response parser + object search |
 | `entity` | `SophosEntity` trait + typed constructors (the create/update/delete layer) |
-| `registry` | catalogue of 66 XML API entities across the SFOS menu categories |
+| `registry` | catalogue of 70 XML API entities across the SFOS menu categories |
 | `xmljson` | generic XML→JSON conversion (any entity without a typed struct) |
 | `apply` | pure plan/diff engine (desired vs live → add/update/remove items) |
 | `ir` / `extract` | vendor-neutral firewall IR + the Sophos→IR bridge |
@@ -51,7 +52,7 @@ Every request carries the `<Login>` block; credentials are XML-escaped.
 | `get_entities_filtered(tag, key, criteria, value)` | `SophosConfig` | server-side `<Filter>` |
 | `get_raw_filtered(tag, key, criteria, value)` | `String` (XML) | server-side `<Filter>` |
 | `export()` | `SophosConfig` | the 5 modelled types merged into one config — the live equivalent of parsing a backup |
-| `export_all()` | `Vec<(&str, Result<String, SdkError>)>` | raw XML for **all 66** catalogued entities, per-entity errors captured |
+| `export_all()` | `Vec<(&str, Result<String, SdkError>)>` | raw XML for **all 70** catalogued entities, per-entity errors captured |
 
 Filters map to the SFOS `<Filter><key name=… criteria=…>` request shape:
 
@@ -101,6 +102,34 @@ To support a new writable type, implement `SophosEntity` (three items:
 `TAG`, `name()`, `to_xml()`) — `create`/`update`/`delete` and the `apply`
 planner then work with it.
 
+## The Central client
+
+`sfos_sdk::central` talks to the **Sophos Central cloud API**, not a
+firewall's on-box XML API — useful for wireless Access Points (or anything
+else) managed through Central rather than a firewall's own Wireless
+subsystem.
+
+```rust
+use sfos_sdk::central::{CentralClient, PollQuery};
+
+let mut central = CentralClient::new(&client_id, &client_secret)?;
+central.whoami()?; // resolves tenant id + regional API host
+let page = central.events(&PollQuery { from_date: Some(since_unix), ..Default::default() })?;
+for item in &page.items {
+    // ...
+}
+```
+
+`whoami()` and `events`/`alerts` call `authenticate()` internally (the
+client-credentials token is cached until near expiry), so you only need to
+call it yourself if you want to fail fast on bad credentials. `CentralState`
+persists `next_cursor` to a JSON file so a poll loop (e.g. a cron job running
+the `central-events`/`central-alerts` CLI commands) resumes where it left
+off instead of re-fetching. `is_wireless_event(&item) -> bool` is a
+best-effort client-side filter on the event `type` field — the events API
+has no server-side product/category filter, and the exact wireless event
+type string is unconfirmed without a live tenant with an enrolled AP.
+
 ## Offline parsing & analysis
 
 ```rust
@@ -137,7 +166,7 @@ sibling elements become arrays.
 
 ## Entity registry
 
-`registry::ENTITIES` — 66 entities across 15 categories, mirroring the SFOS
+`registry::ENTITIES` — 70 entities across 16 categories, mirroring the SFOS
 menu structure (derived from the SFOS 21.5 API reference). The XML API is
 uniform (`<Get><Tag></Tag></Get>`), so this table plus the generic client is
 enough to pull the entire configuration. Tags are best-effort from the docs

@@ -98,6 +98,15 @@ pub const ENTITIES: &[Entity] = &[
     // ── System ──
     e("System", "Hotfix", "Hotfix"),
     e("System", "Central Management", "CentralManagement"),
+    // ── Wireless ── (appliance-only; absent on virtual/cloud firewalls with
+    // no radio. `WirelessGrouping` is the one tag corroborated by a live
+    // Sophos docs page path (`API/PROTECT/Wireless/wirelessgrouping/...`);
+    // the rest are unconfirmed guesses at sibling tags in the same section —
+    // `Client::get_raw` (or the `probe` CLI command) is how you find out.
+    e("Wireless", "Access Point Group", "WirelessGrouping"),
+    e("Wireless", "Wireless Network", "WirelessNetwork"),
+    e("Wireless", "Access Point", "AccessPoint"),
+    e("Wireless", "Mesh Network", "MeshNetwork"),
 ];
 
 const fn e(category: &'static str, display: &'static str, tag: &'static str) -> Entity {

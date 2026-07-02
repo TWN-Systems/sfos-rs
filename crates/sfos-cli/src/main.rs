@@ -60,6 +60,12 @@ enum Command {
     Get(GetArgs),
     /// Pull the entire configuration from a live firewall (every catalogued entity)
     Export(ExportArgs),
+    /// Probe ad-hoc XML API tags against a live firewall (validate hypothesized entity names)
+    Probe(ProbeArgs),
+    /// Poll Sophos Central for events (cloud API, separate from the on-box XML API)
+    CentralEvents(CentralPollArgs),
+    /// Poll Sophos Central for alerts (cloud API, separate from the on-box XML API)
+    CentralAlerts(CentralPollArgs),
     /// Explain why a destination is reachable from some zones but not others
     Explain(ExplainArgs),
     /// Compare site-to-site IPsec between two or more firewall configs
@@ -231,6 +237,41 @@ struct ExportArgs {
 }
 
 #[derive(Args)]
+struct ProbeArgs {
+    #[command(flatten)]
+    conn: ConnArgs,
+    /// Entity tags to probe — any XML API tag, confirmed or hypothesized (e.g. AccessPoint WirelessAP)
+    #[arg(required = true)]
+    tags: Vec<String>,
+}
+
+/// Shared flags for the Sophos Central cloud API pollers.
+#[derive(Args)]
+struct CentralPollArgs {
+    /// Sophos Central API client id (or SFOS_CENTRAL_CLIENT_ID)
+    #[arg(long)]
+    client_id: Option<String>,
+    /// Sophos Central API client secret (or SFOS_CENTRAL_CLIENT_SECRET)
+    #[arg(long)]
+    client_secret: Option<String>,
+    /// Tenant id to scope requests to (or SFOS_CENTRAL_TENANT_ID) — resolved via `whoami` if omitted
+    #[arg(long)]
+    tenant_id: Option<String>,
+    /// Cursor/state file for resuming across runs
+    #[arg(long, default_value = "state/central-cursor.json")]
+    state_file: PathBuf,
+    /// First run only (no saved cursor): how many hours back to fetch (API caps this at 24)
+    #[arg(long, default_value_t = 12)]
+    since_hours: u64,
+    /// Only print items that look wireless/AP-related (best-effort type-string match — see docs on central::is_wireless_event)
+    #[arg(long)]
+    wireless_only: bool,
+    /// Page size
+    #[arg(long, default_value_t = 1000)]
+    limit: u32,
+}
+
+#[derive(Args)]
 struct FileArgs {
     /// Path to Entities.xml (or an XML API <Response> body)
     file: PathBuf,
@@ -355,6 +396,9 @@ fn run(cli: &Cli) -> Result<ExitCode, String> {
         }
         Command::Get(a) => cmd_get(a),
         Command::Export(a) => cmd_export(a),
+        Command::Probe(a) => cmd_probe(a, cli.format),
+        Command::CentralEvents(a) => cmd_central_poll(CentralKind::Events, a, cli.format),
+        Command::CentralAlerts(a) => cmd_central_poll(CentralKind::Alerts, a, cli.format),
     }
 }
 
@@ -794,6 +838,132 @@ fn cmd_export(a: &ExportArgs) -> Result<ExitCode, String> {
         }
         eprintln!("exported {ok} entities ({failed} unavailable)");
     }
+    Ok(ExitCode::SUCCESS)
+}
+
+// ── probe (ad-hoc tag validation) ────────────────────────────────────────────
+
+fn cmd_probe(a: &ProbeArgs, fmt: Format) -> Result<ExitCode, String> {
+    let client = connect(&a.conn)?;
+    struct Outcome {
+        tag: String,
+        ok: bool,
+        elements: usize,
+        error: Option<String>,
+    }
+    let results: Vec<Outcome> = a
+        .tags
+        .iter()
+        .map(|tag| match client.get_raw(tag) {
+            Ok(xml) => {
+                Outcome { tag: tag.clone(), ok: true, elements: xml.matches(&format!("<{tag}>")).count(), error: None }
+            }
+            Err(e) => Outcome { tag: tag.clone(), ok: false, elements: 0, error: Some(e.to_string()) },
+        })
+        .collect();
+
+    match fmt {
+        Format::Json => {
+            let arr: Vec<_> = results
+                .iter()
+                .map(|o| serde_json::json!({ "tag": o.tag, "ok": o.ok, "elements": o.elements, "error": o.error }))
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&arr).unwrap());
+        }
+        Format::Text => {
+            for o in &results {
+                if o.ok {
+                    println!("  {:<28} OK    {} element(s)", o.tag, o.elements);
+                } else {
+                    println!("  {:<28} FAIL  {}", o.tag, o.error.as_deref().unwrap_or(""));
+                }
+            }
+            let ok = results.iter().filter(|o| o.ok).count();
+            println!("\n{ok}/{} tag(s) responded", results.len());
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+// ── central (Sophos Central cloud events/alerts polling) ────────────────────
+
+#[derive(Copy, Clone)]
+enum CentralKind {
+    Events,
+    Alerts,
+}
+
+fn cmd_central_poll(kind: CentralKind, a: &CentralPollArgs, fmt: Format) -> Result<ExitCode, String> {
+    use sfos_sdk::central::{CentralClient, CentralState, PollQuery};
+
+    let client_id = a
+        .client_id
+        .clone()
+        .or_else(|| std::env::var("SFOS_CENTRAL_CLIENT_ID").ok())
+        .ok_or("provide --client-id or set SFOS_CENTRAL_CLIENT_ID")?;
+    let client_secret = a
+        .client_secret
+        .clone()
+        .or_else(|| std::env::var("SFOS_CENTRAL_CLIENT_SECRET").ok())
+        .ok_or("provide --client-secret or set SFOS_CENTRAL_CLIENT_SECRET")?;
+    let tenant_id = a.tenant_id.clone().or_else(|| std::env::var("SFOS_CENTRAL_TENANT_ID").ok());
+
+    let mut client = CentralClient::new(&client_id, &client_secret).map_err(|e| e.to_string())?;
+    if let Some(t) = &tenant_id {
+        client = client.with_tenant_id(t);
+    }
+    client.whoami().map_err(|e| e.to_string())?;
+
+    let mut state = CentralState::load(&a.state_file);
+    let cursor = match kind {
+        CentralKind::Events => state.events_cursor.clone(),
+        CentralKind::Alerts => state.alerts_cursor.clone(),
+    };
+    let from_date = if cursor.is_none() {
+        Some(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| e.to_string())?
+                .as_secs()
+                .saturating_sub(a.since_hours * 3600),
+        )
+    } else {
+        None
+    };
+    let query = PollQuery { cursor, from_date, limit: a.limit };
+
+    let page = match kind {
+        CentralKind::Events => client.events(&query),
+        CentralKind::Alerts => client.alerts(&query),
+    }
+    .map_err(|e| e.to_string())?;
+
+    let items: Vec<&serde_json::Value> = if a.wireless_only {
+        page.items.iter().filter(|i| sfos_sdk::central::is_wireless_event(i)).collect()
+    } else {
+        page.items.iter().collect()
+    };
+
+    match fmt {
+        Format::Json => println!("{}", serde_json::to_string_pretty(&items).unwrap()),
+        Format::Text => {
+            for item in &items {
+                println!("{item}");
+            }
+            println!(
+                "\n{} item(s){}",
+                items.len(),
+                if a.wireless_only { format!(" (wireless-filtered from {})", page.items.len()) } else { String::new() }
+            );
+        }
+    }
+
+    match kind {
+        CentralKind::Events => state.events_cursor = page.next_cursor,
+        CentralKind::Alerts => state.alerts_cursor = page.next_cursor,
+    }
+    state.save(&a.state_file).map_err(|e| format!("{}: {e}", a.state_file.display()))?;
+
     Ok(ExitCode::SUCCESS)
 }
 
