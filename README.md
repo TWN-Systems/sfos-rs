@@ -2,6 +2,7 @@
 
 [![build](https://img.shields.io/github/actions/workflow/status/TWN-Systems/sfos-rs/build.yml?branch=main&logo=github&label=build)](https://github.com/TWN-Systems/sfos-rs/actions/workflows/build.yml)
 [![security](https://img.shields.io/github/actions/workflow/status/TWN-Systems/sfos-rs/security.yml?branch=main&logo=github&label=security)](https://github.com/TWN-Systems/sfos-rs/actions/workflows/security.yml)
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/TWN-Systems/sfos-rs?utm_source=badge)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/TWN-Systems/sfos-rs/badge)](https://scorecard.dev/viewer/?uri=github.com/TWN-Systems/sfos-rs)
 [![OpenSSF Baseline](https://www.bestpractices.dev/projects/13145/baseline)](https://www.bestpractices.dev/projects/13145)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13145/badge)](https://www.bestpractices.dev/projects/13145)
