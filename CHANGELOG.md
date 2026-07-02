@@ -9,7 +9,21 @@ All notable changes to sfos-rs are documented here. Format follows
 
 ### Added
 - Full SFOS XML API SDK: live client (get/set/remove/export, server-side
-  filters), 66-entity registry, typed create/update/delete layer
+  filters), 70-entity registry (including a best-effort `Wireless` category —
+  `WirelessGrouping` confirmed against the Sophos docs site, the rest
+  unconfirmed), typed create/update/delete layer
+- `probe`: validate ad-hoc XML API tag names against a live firewall
+  (reports OK/element-count or the failure per tag), for finding entity tags
+  the registry doesn't know about yet
+- `sfos_sdk::central`: a Sophos Central cloud API client (OAuth2
+  client-credentials auth, `whoami` tenant/region resolution, `/siem/v1/events`
+  and `/siem/v1/alerts` polling with cursor-based resume) — a separate
+  product surface from the on-box XML API, for tenants that manage wireless
+  Access Points through Central. `central-events`/`central-alerts` CLI
+  commands poll one page at a time, persisting the cursor to a state file
+  between runs; `--wireless-only` applies a best-effort client-side filter
+  on the event `type` field (the events API has no server-side category
+  filter, confirmed against the official SIEM-integration reference client)
 - Offline `Entities.xml` parsing and analysis: `parse`, `dump`, `search`,
   `check`, `trace`, `verify`, `graph`
 - Differential reachability (`explain`), single-box packet trace (`path`),

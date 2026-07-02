@@ -2,6 +2,7 @@
 //!
 //! - [`sophos`] — typed config model + `Entities.xml` / XML-API parser + search.
 //! - [`client`] — live XML API client (auth, get/set/remove, full export).
+//! - [`central`] — Sophos Central cloud API client (OAuth2, events/alerts polling).
 //! - [`ir`] / [`extract`] — vendor-neutral firewall IR and the Sophos→IR bridge.
 //! - [`acl`] — packet-forwarding (reachability) evaluation.
 //! - [`shadow`] — shadowed / unreachable rule detection.
@@ -11,6 +12,7 @@
 
 pub mod acl;
 pub mod apply;
+pub mod central;
 pub mod client;
 pub mod entity;
 pub mod extract;

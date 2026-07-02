@@ -139,7 +139,7 @@ route table. Both exit `1` on BLOCKED, so they work in scripts.
 
 ## Playbook 5 — BCDR: config export, backup, and drift detection
 
-**Full-fidelity backup** (all 66 catalogued entities, raw XML):
+**Full-fidelity backup** (all 70 catalogued entities, raw XML):
 
 ```bash
 sfos-rs export --host fw --user apiadmin --insecure --raw --out-dir backups/fw1/$(date +%F)/

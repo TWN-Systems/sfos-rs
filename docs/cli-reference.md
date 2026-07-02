@@ -217,7 +217,7 @@ Emit version-controllable IaC from a parsed config:
 
 ### `entities`
 
-List the built-in XML API entity catalogue (66 entities across 15 SFOS menu
+List the built-in XML API entity catalogue (70 entities across 16 SFOS menu
 categories — see [sdk-guide.md](sdk-guide.md#entity-registry)). Text output
 groups by category; JSON emits `{category, display, tag}` objects. Offline —
 does not contact any firewall.
@@ -255,7 +255,7 @@ generic XML→JSON conversion; `--raw` prints the firewall's raw XML response.
 
 ### `export --host <H> --user <U> [...] [--out-dir <DIR>] [--raw]`
 
-Pull **every catalogued entity** (66 `Get` requests). Resilient: each
+Pull **every catalogued entity** (70 `Get` requests). Resilient: each
 entity's result is captured independently, so one failure (or an entity that
 doesn't exist on that model/firmware) never aborts the export.
 
@@ -266,6 +266,51 @@ doesn't exist on that model/firmware) never aborts the export.
   entity; creates the directory; **overwrites** same-named files
 
 Summary on stderr: `exported N entities (M unavailable)`.
+
+### `probe --host <H> --user <U> [...] <TAG>...`
+
+Try one or more **arbitrary** XML API tags and report, per tag, whether the
+firewall responded and how many `<Tag>` elements came back (or the error).
+For validating a hypothesized entity name before adding it to the registry —
+e.g. `probe --host fw --user admin AccessPoint WirelessAP
+WirelessAccessPointStatus` to find the real tag for a section the registry
+only has a best-effort guess for (see the `Wireless` category in `entities`).
+
+---
+
+## Sophos Central (cloud API)
+
+`central-events` and `central-alerts` talk to the **Sophos Central cloud**,
+not the firewall's on-box XML API — a separate product surface for tenants
+that manage Access Points (or anything else) through Central rather than a
+firewall's own Wireless subsystem.
+
+```
+sfos-rs central-events [--client-id <ID>] [--client-secret <SECRET>] [--tenant-id <ID>] \
+  [--state-file <PATH>] [--since-hours N] [--wireless-only] [--limit N]
+sfos-rs central-alerts [...same flags...]
+```
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--client-id` / `--client-secret` | env `SFOS_CENTRAL_CLIENT_ID` / `SFOS_CENTRAL_CLIENT_SECRET` | from Central → Global Settings → API Credentials Management |
+| `--tenant-id` | env `SFOS_CENTRAL_TENANT_ID`, else resolved via `whoami` | required for partner/organization credentials scoped to more than one tenant |
+| `--state-file` | `state/central-cursor.json` | cursor is saved here after every run and resumed on the next one |
+| `--since-hours` | `12` | only used on the **first** run (no saved cursor yet); the API caps this at 24h |
+| `--wireless-only` | off | best-effort client-side filter on the event `type` field — see caveat below |
+| `--limit` | `1000` | page size |
+
+Each run authenticates (OAuth2 client-credentials grant), resolves the
+tenant/region via `whoami/v1` if `--tenant-id` wasn't given, fetches **one
+page** from `/siem/v1/events` or `/siem/v1/alerts`, and updates the state
+file's cursor — run it again (e.g. from cron) to keep advancing.
+
+**`--wireless-only` is unconfirmed.** Central's events/alerts endpoints have
+no server-side product/category filter, so this matches the `type` field
+client-side (`sfos_sdk::central::is_wireless_event`) against a guessed
+naming convention. Validate it against a live tenant with an enrolled Access
+Point before relying on it — the wireless event type Sophos actually emits
+may not match.
 
 ---
 

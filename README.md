@@ -108,12 +108,21 @@ sfos-rs entities                                            # list the entity ca
 sfos-rs fetch  --host fw --user admin --insecure            # typed summary
 sfos-rs get    --host fw --user admin --insecure FirewallRule   # one entity (JSON or --raw)
 sfos-rs export --host fw --user admin --insecure --out-dir ./dump   # pull the whole config
+sfos-rs probe  --host fw --user admin --insecure AccessPoint WirelessAP  # validate ad-hoc tag names
 sfos-rs apply  desired.xml --host fw --user admin --insecure        # dry-run plan; add --commit to write
 ```
 
 Add `--format json` for machine-readable output. `--insecure` skips TLS verification
 (SFOS ships a self-signed certificate by default). `apply --commit` is the only
 operation that writes to a firewall — see [docs/safety.md](docs/safety.md).
+
+Sophos Central cloud API (separate from the on-box XML API above — set
+`SFOS_CENTRAL_CLIENT_ID`/`SFOS_CENTRAL_CLIENT_SECRET`, or pass `--client-id`/`--client-secret`):
+
+```bash
+sfos-rs central-events --state-file state/cursor.json --wireless-only   # poll one page, resumes via the cursor file
+sfos-rs central-alerts --state-file state/cursor.json
+```
 
 ## Getting an Entities.xml
 
